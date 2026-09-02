@@ -1,0 +1,27 @@
+# learning material — local only, never pushed
+.learning/
+
+# secrets — never commit these
+.env
+*.key
+
+# data & artifacts
+data/
+*.db
+.chroma/
+chroma/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# editors / os
+.vscode/
+.idea/
+.DS_Store
