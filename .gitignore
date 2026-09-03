@@ -25,3 +25,6 @@ venv/
 .vscode/
 .idea/
 .DS_Store
+
+# throwaway exploration
+scratch/

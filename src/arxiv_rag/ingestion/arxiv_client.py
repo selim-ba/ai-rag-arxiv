@@ -20,7 +20,7 @@ import httpx
 
 from arxiv_rag.ingestion.models import Paper
 
-ARXIV_API_URL = "http://export.arxiv.org/api/query"
+ARXIV_API_URL = "https://export.arxiv.org/api/query"
 
 # arXiv ids look like '2005.11401v4' or (older) 'cs/0501001v1'. We drop the version
 # suffix so re-ingesting a revised paper does not create a duplicate.
@@ -49,51 +49,50 @@ def normalise_arxiv_id(raw_id: str) -> str:
 
 
 def parse_atom_feed(xml: str) -> list[Paper]:
-    """Turn an arXiv Atom response into ``Paper`` models.
+    """Parse an arXiv Atom response into Paper models. An empty feed gives []."""
+    result = []
+    feed = feedparser.parse(xml)
+    entries = feed.entries
 
-    TODO(you): implement this.
+    #dict_keys(['id', 'guidislink', 'link', 'updated', 'updated_parsed', 'published', 'published_parsed', 'title', 'title_detail', 'summary', 'summary_detail', 'authors', 'author_detail', 'author', 'links', 'arxiv_primary_category', 'tags'])
+    #print(entries[0].links)
 
-    Hints, in the order you will hit the problems:
+    for entry in entries:
+        paper = Paper(
+            arxiv_id=normalise_arxiv_id(entry.id),
+            title= " ".join(entry.title.split()),
+            authors = [author.name for author in entry.authors],
+            abstract = " ".join(entry.summary.split()),
+            published = datetime.fromisoformat(entry.published.replace("Z", "+00:00")).date(),
+            categories = [tag.term for tag in entry.tags],
+            pdf_url = next(link.href for link in entry.links if link.type == "application/pdf")
+        )
 
-    1. ``feed = feedparser.parse(xml)`` then iterate ``feed.entries``.
-    2. Inspect one entry first. Genuinely do this — open a REPL, print
-       ``feed.entries[0].keys()``. Guessing at an unfamiliar data structure is how you
-       lose an hour.
-    3. ``entry.id`` is a full URL. Use ``normalise_arxiv_id``.
-    4. **Titles and summaries contain embedded newlines and runs of spaces** from the
-       PDF-era formatting. Collapse whitespace: ``" ".join(value.split())``. If you skip
-       this, every title in your citations looks broken.
-    5. Authors are ``entry.authors``, a list of objects with ``.name``.
-    6. ``entry.published`` is an ISO-8601 string with a 'Z'. Python's
-       ``datetime.fromisoformat`` handles 'Z' from 3.11 onward. You want a ``date``.
-    7. The PDF link is the one in ``entry.links`` whose ``type`` is
-       ``application/pdf``. Do not build the URL by string-mangling the abs URL — the
-       API tells you what it is, so use what it tells you.
-    8. Categories are ``entry.tags``, each with a ``.term``.
+        result.append(paper)
 
-    Return an empty list rather than raising if the feed has no entries.
-    """
-    raise NotImplementedError("Stage 1: implement parse_atom_feed")
+    return result
 
 
 def search(query: str, limit: int = 10, delay_seconds: float = 3.0) -> list[Paper]:
-    """Search arXiv and return parsed papers.
+    """Search arXiv and return parsed papers."""
+    
+    _throttle(delay_seconds)
 
-    TODO(you): implement this.
+    params = {
+        "search_query":query,
+        "start": 0,
+        "max_results":limit,
+        "sortBy":"relevance",
+        "sortOrder":"descending"
+    }
 
-    Hints:
+    response = httpx.get(ARXIV_API_URL, params=params, timeout=30)
+    response.raise_for_status() #raise an exception if the request failed (e.g., network error, 4xx or 5xx status code)
 
-    - Query params: ``search_query``, ``start``, ``max_results``, and
-      ``sortBy=submittedDate`` with ``sortOrder=descending`` so you get recent work.
-    - The ``search_query`` syntax is field-prefixed: ``all:"retrieval augmented"``,
-      or ``cat:cs.CL AND abs:agent``. Read the user manual linked above; this syntax
-      is the whole reason this API is more useful than scraping.
-    - Call ``_throttle(delay_seconds)`` before the request.
-    - Use ``httpx.get(..., timeout=30)`` and ``response.raise_for_status()``.
-    - Then hand ``response.text`` to ``parse_atom_feed``. This function should be about
-      eight lines; all the real work is in the parser you already wrote.
-    """
-    raise NotImplementedError("Stage 1: implement search")
+    return parse_atom_feed(response.text)
+
+
+
 
 
 def _unused_import_guard() -> None:  # pragma: no cover
