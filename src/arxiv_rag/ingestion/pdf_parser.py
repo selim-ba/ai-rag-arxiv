@@ -14,6 +14,18 @@ from pathlib import Path
 import httpx
 from pypdf import PdfReader
 
+import logging
+import re
+from collections import Counter
+
+from arxiv_rag.ingestion.chunker import heading_of
+
+log = logging.getLogger(__name__)
+
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_ARXIV_STAMP_RE = re.compile(r"^\s*arXiv:\d{4}\.\d{4,5}v\d+\s+\[[\w.\-]+\].*$")
+_PAGE_NUM_RE = re.compile(r"^\s*\d{1,3}\s*$")
+
 
 def download_pdf(pdf_url: str, dest: Path, timeout: float = 60.0) -> Path:
     """Download a PDF to ``dest`` unless it is already there. Given to you."""
@@ -45,32 +57,60 @@ def extract_text(pdf_path: Path) -> str:
     When it runs, open the output of a real paper and read it. Find three things that
     are wrong. Those three things are what ``clean_text`` is for.
     """
-    raise NotImplementedError("Stage 1: implement extract_text")
+    try:
+        reader = PdfReader(pdf_path)
+        text = []
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text is not None:
+                text.append(page_text)
+        return "\n\n".join(text)
+    except Exception as e:
+        log.warning("Failed to extract text from %s: %s", pdf_path.name, e)
+        return ""
+
+def _strip_boilerplate(lines: list[str]) -> list[str]:
+    """Drop page numbers, the arXiv margin stamp, and repeated running headers."""
+    counts = Counter(ln.strip() for ln in lines if ln.strip())
+    kept = []
+    for ln in lines:
+        s = ln.strip()
+        if _PAGE_NUM_RE.match(ln) or _ARXIV_STAMP_RE.match(ln):
+            continue
+        if s and len(s) < 60 and counts[s] >= 4 and not s.endswith((".", ":", ";", ",")):
+            continue  # short line repeated on many pages == running header
+        kept.append(ln)
+    return kept
 
 
 def clean_text(raw: str) -> str:
-    """Clean extracted PDF text.
+    """Normalise text extracted from a PDF into readable paragraphs."""
+    if not raw:
+        return ""
 
-    TODO(you): implement this. ``tests/test_pdf_parser.py`` is the spec — read it first.
+    # Must come first: NUL and friends would otherwise collide with the sentinel below.
+    text = _CONTROL_RE.sub("", raw)
 
-    You must handle, at minimum:
+    lines = _strip_boilerplate(text.split("\n"))
 
-    1. **De-hyphenation.** PDFs break words across lines: ``"retrie-\\nval"`` must
-       become ``"retrieval"``. If you skip this, your embeddings contain hundreds of
-       words that do not exist, and keyword search in Stage 3 will miss them entirely.
-    2. **Single newlines are line wraps, not paragraph breaks.** A newline inside a
-       paragraph should become a space. Two or more newlines is a real break and should
-       stay one blank line.
-    3. **Collapse runs of spaces and tabs** into a single space.
-    4. Strip leading/trailing whitespace from the result.
+    # Section headings sit on their own line with no blank line around them. Promote
+    # them to their own paragraph, or the line-wrap collapse below swallows them into
+    # the surrounding prose and split_into_sections finds nothing.
+    spaced: list[str] = []
+    for ln in lines:
+        if heading_of(ln):
+            spaced.extend(["", ln, ""])
+        else:
+            spaced.append(ln)
+    text = "\n".join(spaced)
 
-    Order matters: de-hyphenate before you collapse newlines, or the hyphen and the
-    newline stop being adjacent and rule 1 can no longer fire.
-
-    Optional, once the tests pass: drop lines that repeat on nearly every page (running
-    headers and footers), and strip standalone page numbers.
-    """
-    raise NotImplementedError("Stage 1: implement clean_text")
+    text = re.sub(r"-\n(?=\w)", "", text)         # de-hyphenate across line breaks
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{2,}", "\x00", text)        # mark real paragraph breaks
+    text = re.sub(r"[ \t]*\n[ \t]*", " ", text)   # line wraps become spaces
+    text = text.replace("\x00", "\n\n")           # restore paragraph breaks
+    text = re.sub(r"[ \t]+", " ", text)
+    return text.strip()
 
 
 def _unused_import_guard() -> None:  # pragma: no cover
