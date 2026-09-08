@@ -1,12 +1,13 @@
 """PDF download and text extraction.
 
-Fair warning: this is the ugliest part of any RAG pipeline. Academic PDFs are typeset
-for print, not for parsing. You will see two-column text interleaved into nonsense,
-ligatures turned into mojibake, page numbers glued onto sentences, and equations
-reduced to rubble.
+Academic PDFs are typeset for print, not for parsing: equations become rubble, running
+headers land mid-sentence, and words break across lines. ``clean_text`` repairs what is
+repairable; the rest is documented as a known limitation.
 
-You are not aiming for perfection. You are aiming to *look at the output*, notice the
-specific ways it is broken, and clean up the ones that would hurt retrieval.
+Extraction uses PyMuPDF rather than pypdf. Measured on six papers, pypdf dropped the
+spaces between words in one of them (0.77% of its words ran together, the worst being a
+92-character run) and pdfplumber was far worse (up to 10.7%). PyMuPDF produced zero on
+all six and recovered ~19% more words from the affected paper. See docs/results.md.
 """
 
 import logging
@@ -15,7 +16,7 @@ from collections import Counter
 from pathlib import Path
 
 import httpx
-from pypdf import PdfReader
+import pymupdf
 
 from arxiv_rag.ingestion.chunker import heading_of
 
@@ -27,7 +28,7 @@ _PAGE_NUM_RE = re.compile(r"^\s*\d{1,3}\s*$")
 
 
 def download_pdf(pdf_url: str, dest: Path, timeout: float = 60.0) -> Path:
-    """Download a PDF to ``dest`` unless it is already there. Given to you."""
+    """Download a PDF to ``dest`` unless it is already there."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists() and dest.stat().st_size > 0:
         return dest
@@ -42,30 +43,15 @@ def download_pdf(pdf_url: str, dest: Path, timeout: float = 60.0) -> Path:
 def extract_text(pdf_path: Path) -> str:
     """Extract raw text from a PDF, page by page.
 
-    TODO(you): implement this.
-
-    Hints:
-
-    - ``reader = PdfReader(pdf_path)``, then ``page.extract_text()`` for each
-      ``reader.pages``.
-    - Join pages with ``"\\n\\n"``.
-    - Some pages return ``None`` rather than a string. Handle it.
-    - Wrap the whole thing so one corrupt PDF does not kill an ingestion run of fifty
-      papers — log it and return ``""``.
-
-    When it runs, open the output of a real paper and read it. Find three things that
-    are wrong. Those three things are what ``clean_text`` is for.
+    Broad ``except`` on purpose: this runs over a batch of untrusted files, and one
+    unreadable PDF should cost you that paper, not the other thirty-nine.
     """
     try:
-        reader = PdfReader(pdf_path)
-        text = []
-        for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text is not None:
-                text.append(page_text)
-        return "\n\n".join(text)
-    except Exception as e:
-        log.warning("Failed to extract text from %s: %s", pdf_path.name, e)
+        with pymupdf.open(pdf_path) as doc:
+            pages = [page.get_text() for page in doc]
+        return "\n\n".join(page for page in pages if page)
+    except Exception as exc:
+        log.warning("could not extract text from %s: %s", pdf_path.name, exc)
         return ""
 
 
@@ -91,6 +77,11 @@ def clean_text(raw: str) -> str:
     # Must come first: NUL and friends would otherwise collide with the sentinel below.
     text = _CONTROL_RE.sub("", raw)
 
+    # De-hyphenate before anything else touches the line structure. A heading that wraps
+    # ("... Predictor Ge-\nneralization") is only recognisable once its two halves are
+    # rejoined into a single line.
+    text = re.sub(r"-\n(?=\w)", "", text)
+
     lines = _strip_boilerplate(text.split("\n"))
 
     # Section headings sit on their own line with no blank line around them. Promote
@@ -104,15 +95,9 @@ def clean_text(raw: str) -> str:
             spaced.append(ln)
     text = "\n".join(spaced)
 
-    text = re.sub(r"-\n(?=\w)", "", text)  # de-hyphenate across line breaks
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{2,}", "\x00", text)  # mark real paragraph breaks
     text = re.sub(r"[ \t]*\n[ \t]*", " ", text)  # line wraps become spaces
     text = text.replace("\x00", "\n\n")  # restore paragraph breaks
     text = re.sub(r"[ \t]+", " ", text)
     return text.strip()
-
-
-def _unused_import_guard() -> None:  # pragma: no cover
-    """Keeps the linter quiet about an import you need once extract_text exists."""
-    _ = PdfReader

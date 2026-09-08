@@ -217,13 +217,31 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     return chunks
 
 
+def _merge_short_sections(sections: list[Section], min_tokens: int = 60) -> list[Section]:
+    """Fold undersized sections into the one before them.
+
+    A real section is never twenty tokens long, but a spurious heading is: a numbered
+    table row ("1 Warmup frozen ...") is indistinguishable from "3.1 Experimental Setup"
+    by regex alone. Merging recovers that text into its neighbour instead of leaving it
+    as a fragment too small to retrieve and too noisy to be useful.
+    """
+    merged: list[Section] = []
+    for section in sections:
+        if merged and count_tokens(section.body) < min_tokens:
+            previous = merged[-1]
+            merged[-1] = Section(title=previous.title, body=f"{previous.body}\n\n{section.body}")
+        else:
+            merged.append(section)
+    return merged
+
+
 def chunk_paper(paper: Paper, text: str, chunk_size: int, overlap: int) -> list[Chunk]:
     """Turn one paper's cleaned text into Chunk models."""
     body = strip_references(text)
 
     chunks: list[Chunk] = []
     index = 0
-    for section in split_into_sections(body):
+    for section in _merge_short_sections(split_into_sections(body)):
         for piece in chunk_text(section.body, chunk_size, overlap):
             chunks.append(
                 Chunk(
