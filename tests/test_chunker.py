@@ -35,7 +35,12 @@ References
 
 def test_heading_of_recognises_known_headings():
     assert heading_of("Introduction") == "Introduction"
-    assert heading_of("REFERENCES") == "REFERENCES"
+
+
+def test_heading_of_normalises_all_caps():
+    """ "ABSTRACT" and "Abstract" must be the same section for metadata filtering."""
+    assert heading_of("REFERENCES") == "References"
+    assert heading_of("4 EXPERIMENTAL SETUP") == "Experimental Setup"
 
 
 def test_heading_of_recognises_numbered_headings():
@@ -46,6 +51,15 @@ def test_heading_of_recognises_numbered_headings():
 def test_heading_of_rejects_prose():
     assert heading_of("We introduce a thing.") is None
     assert heading_of("Bananas") is None  # capitalised, but not a known heading
+
+
+def test_heading_of_rejects_numbered_table_rows():
+    """A leading number is not enough: real papers are full of numbered non-headings."""
+    assert heading_of("5 while not converged do") is None  # algorithm pseudocode
+    assert heading_of("3 tasks") is None  # table row
+    assert heading_of("2 categoricals") is None
+    assert heading_of("7 Model-wise Robustness Ranking and") is None  # wrapped sentence
+    assert heading_of("6 The layers are indicated in Italics as") is None  # caption
 
 
 def test_count_tokens():

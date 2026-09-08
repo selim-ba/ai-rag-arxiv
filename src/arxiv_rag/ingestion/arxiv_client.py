@@ -54,9 +54,6 @@ def parse_atom_feed(xml: str) -> list[Paper]:
     feed = feedparser.parse(xml)
     entries = feed.entries
 
-    # dict_keys(['id', 'guidislink', 'link', 'updated', 'updated_parsed', 'published', 'published_parsed', 'title', 'title_detail', 'summary', 'summary_detail', 'authors', 'author_detail', 'author', 'links', 'arxiv_primary_category', 'tags'])
-    # print(entries[0].links)
-
     for entry in entries:
         paper = Paper(
             arxiv_id=normalise_arxiv_id(entry.id),
@@ -87,9 +84,32 @@ def search(query: str, limit: int = 10, delay_seconds: float = 3.0) -> list[Pape
     }
 
     response = httpx.get(ARXIV_API_URL, params=params, timeout=30)
-    response.raise_for_status()  # raise an exception if the request failed (e.g., network error, 4xx or 5xx status code)
+    response.raise_for_status()  # 4xx/5xx becomes an exception, not a silently empty feed
 
     return parse_atom_feed(response.text)
+
+
+_ID_BATCH = 50
+
+
+def fetch_by_ids(ids: list[str], delay_seconds: float = 3.0) -> list[Paper]:
+    """Fetch specific papers by arXiv id.
+
+    Same endpoint as ``search``, addressed by ``id_list`` instead of ``search_query``.
+    This is what makes a curated corpus reproducible: the index is defined by a list of
+    ids in a file rather than by whatever a query happened to rank highly that day.
+
+    Requests are batched because a URL has a length limit and arXiv has a rate limit.
+    """
+    papers: list[Paper] = []
+    for start in range(0, len(ids), _ID_BATCH):
+        batch = ids[start : start + _ID_BATCH]
+        _throttle(delay_seconds)
+        params = {"id_list": ",".join(batch), "max_results": len(batch)}
+        response = httpx.get(ARXIV_API_URL, params=params, timeout=30)
+        response.raise_for_status()
+        papers.extend(parse_atom_feed(response.text))
+    return papers
 
 
 def _unused_import_guard() -> None:  # pragma: no cover

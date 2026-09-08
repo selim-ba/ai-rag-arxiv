@@ -55,6 +55,48 @@ KNOWN_HEADINGS = {
 _HEADING_RE = re.compile(
     r"^\s*(?:(?P<num>\d+(?:\.\d+)*)\.?\s+)?(?P<title>[A-Za-z][A-Za-z0-9 &:\-]{2,60})\s*$"
 )
+# A heading never ends on a function word. A wrapped sentence often does, which is how
+# figure captions and algorithm pseudocode sneak past the pattern above.
+_TRAILING_FUNCTION_WORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "but",
+    "by",
+    "for",
+    "from",
+    "has",
+    "have",
+    "if",
+    "in",
+    "into",
+    "is",
+    "it",
+    "its",
+    "not",
+    "of",
+    "on",
+    "or",
+    "our",
+    "that",
+    "the",
+    "their",
+    "then",
+    "this",
+    "to",
+    "was",
+    "we",
+    "were",
+    "when",
+    "which",
+    "while",
+    "with",
+}
+
 _JOIN = "\n\n"
 _SENTENCE_END_RE = re.compile(r"(?<=[.!?])\s+")
 
@@ -84,11 +126,36 @@ def count_tokens(text: str) -> int:
 
 
 def heading_of(line: str) -> str | None:
-    """Return the cleaned heading title if ``line`` is a section heading, else None"""
+    """Return the cleaned heading title if ``line`` is a section heading, else None.
+
+    Returns the title without its number: "3.1 Related Work" comes back as
+    "Related Work", and an ALL-CAPS heading is normalised to title case so that
+    "ABSTRACT" and "Abstract" are the same section when filtering on metadata.
+
+    The rejections below were added after ingesting 49 real papers, where a leading
+    number plus capitalised words turned out to also describe equation lines, algorithm
+    pseudocode ("5 while not converged do"), table rows and wrapped figure captions.
+    """
     match = _HEADING_RE.match(line)
     if not match:
         return None
+
     title = " ".join(match.group("title").split())
+
+    # Real headings are capitalised; "3 tasks" and "9 end" are table rows.
+    if not title[0].isupper():
+        return None
+
+    # "... Ranking and", "... in Italics as" — a sentence that wrapped, not a heading.
+    if title.split()[-1].lower() in _TRAILING_FUNCTION_WORDS:
+        return None
+
+    # Canonical casing, so "ABSTRACT", "Abstract" and "Related work" do not become three
+    # different values to filter on. Paper-specific headings keep their own casing:
+    # title-casing everything would turn "V-JEPA Baseline" into "V-Jepa Baseline".
+    if title.isupper() or title.lower() in KNOWN_HEADINGS:
+        title = title.title()
+
     if match.group("num"):
         return title
     return title if title.lower() in KNOWN_HEADINGS else None
@@ -232,6 +299,14 @@ def _merge_short_sections(sections: list[Section], min_tokens: int = 60) -> list
             merged[-1] = Section(title=previous.title, body=f"{previous.body}\n\n{section.body}")
         else:
             merged.append(section)
+
+    # The first section has nothing before it, so fold it forwards instead — otherwise a
+    # short title-and-authors preamble survives as an unretrievably small chunk.
+    if len(merged) > 1 and count_tokens(merged[0].body) < min_tokens:
+        head, following = merged[0], merged[1]
+        merged[1] = Section(title=following.title, body=f"{head.body}\n\n{following.body}")
+        merged.pop(0)
+
     return merged
 
 

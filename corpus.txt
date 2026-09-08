@@ -1,0 +1,70 @@
+# corpus.txt — the papers that make up the index.
+#
+# One arXiv id per line; everything after '#' is a comment. Rebuild the index with:
+#     python -m scripts.ingest --ids-file corpus.txt
+#
+# Scope: world models and joint-embedding predictive architectures. Papers that merely
+# apply JEPA to an unrelated domain (radiology, collider physics, EHR, 6G) are excluded
+# on purpose — a corpus where "world model" means five different things cannot support
+# the comparison questions this system is built to answer.
+
+# ---- foundational ----------------------------------------------------------
+1803.10122   # World Models — Ha & Schmidhuber, 2018. Named the field.
+2301.08243   # I-JEPA — the architecture's origin
+2412.10925   # Video Representation Learning with Joint-Embedding Predictive Architectures
+2404.08471   # V-JEPA — Revisiting Feature Prediction for Learning Visual Representations from Video
+2506.09985   # V-JEPA 2
+
+# ---- JEPA: theory and architecture -----------------------------------------
+2606.27014   # A Generalization Theory for JEPA-Based World Models
+2510.05949   # Gaussian Embeddings: How JEPAs Secretly Learn Your Data Density
+2509.12249   # Why and How Auxiliary Tasks Improve JEPA Representations
+2407.03475   # How JEPA Avoids Noisy Features: implicit bias of deep linear self-distillation
+2410.19560   # Connecting JEPA with Contrastive Self-Supervised Learning
+2410.03755   # Denoising with a Joint-Embedding Predictive Architecture
+2603.14131   # Is the reconstruction loss culprit? An attempt to outperform JEPA
+2411.16695   # Recurrent JEPA with recurrent forward propagation
+2603.20111   # Var-JEPA: a variational formulation
+2607.04044   # SiamJEPA: on the role of Siamese student encoders
+
+# ---- JEPA world models -----------------------------------------------------
+2605.25313   # UWM-JEPA: predictive world models that imagine in belief space
+2605.09241   # Sub-JEPA: subspace Gaussian regularization
+2608.17542   # No Gaussian Required: contrastive inverse dynamics for JEPA world models
+2608.29029   # Flow-JEPA: flow matching for robust latent dynamics
+2606.31232   # Delta-JEPA: action-sensitive world models via latent difference decoding
+2605.17165   # Factorized Latent Dynamics for Video JEPA
+2504.16591   # JEPA for RL
+2601.00844   # Value-guided action planning with JEPA world models
+2607.05238   # Branch-JEPA: finite-support predictive distributions
+2608.05720   # PhyLatent: dynamics-relevant representations
+2608.06799   # Is Forward Prediction Enough? Physical state grounding
+2605.13013   # JEDI: joint embedding diffusion world model
+
+# ---- world models and latent dynamics --------------------------------------
+2606.28751   # A Path-Space Formulation of Prediction in World Models
+2401.17835   # Simplifying Latent Dynamics with Softly State-Invariant World Models
+2305.18499   # Pre-training Contextualized World Models with In-the-wild Videos
+2303.06572   # Continual Visual RL with a Life-Long World Model
+2311.03622   # TWIST: teacher-student world model distillation
+2410.08822   # SOLD: slot object-centric latent dynamics
+2403.10967   # Dreaming of Many Worlds: contextual world models
+2210.11698   # Learning Robust Dynamics through Variational Sparse Gating
+2412.03572   # Navigation World Models
+2510.19818   # Semantic World Models
+2606.16605   # ARB4WM: adversarial robustness benchmark for world models
+
+# ---- model-based RL: the historical layer ----------------------------------
+2007.14535   # Dreaming: MBRL by latent imagination without reconstruction
+2106.13229   # Model-Based RL via Latent-Space Collocation
+2303.14889   # MBRL with Isolated Imaginations
+2012.04603   # Models, Pixels, and Rewards: design trade-offs in visual MBRL
+2107.08241   # High-Accuracy Model-Based RL, a survey
+
+# ---- canon: planning and generative world models ---------------------------
+1811.04551   # PlaNet — Learning Latent Dynamics for Planning from Pixels
+1912.01603   # Dreamer — Dream to Control
+2010.02193   # DreamerV2 — Mastering Atari with Discrete World Models
+2301.04104   # DreamerV3 — Mastering Diverse Domains through World Models
+2209.00588   # IRIS — Transformers are Sample-Efficient World Models
+2402.15391   # Genie — Generative Interactive Environments

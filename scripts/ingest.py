@@ -1,13 +1,18 @@
-"""Ingestion CLI: arXiv search -> PDFs -> cleaned text -> chunks on disk.
+"""Ingestion CLI: arXiv -> PDFs -> cleaned text -> chunks on disk.
 
-    python -m scripts.ingest --query "retrieval augmented generation" --limit 5
+Two ways to choose papers:
 
-The plumbing is given. The four TODO lines call the functions you implement in Stage 1.
+    python -m scripts.ingest --query 'all:"JEPA"' --limit 5
+    python -m scripts.ingest --ids-file corpus.txt
+
+The second is the real one. A curated list of ids in a file makes the index
+reproducible; a query returns whatever the ranker liked on the day you ran it.
 """
 
 import argparse
 import logging
 import sys
+from pathlib import Path
 
 from arxiv_rag.config import get_settings
 from arxiv_rag.ingestion import arxiv_client, chunker, pdf_parser
@@ -15,10 +20,26 @@ from arxiv_rag.ingestion import arxiv_client, chunker, pdf_parser
 log = logging.getLogger("ingest")
 
 
+def load_corpus_ids(path: Path) -> list[str]:
+    """Read arXiv ids from a corpus file.
+
+    One id per line. Anything after ``#`` is a comment, so each line can record why the
+    paper is in the index — which is most of the point of keeping the file.
+    """
+    ids = []
+    for line in path.read_text().splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            ids.append(line)
+    return ids
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Ingest arXiv papers into the local index")
-    parser.add_argument("--query", required=True, help='arXiv query, e.g. all:"RAG"')
-    parser.add_argument("--limit", type=int, default=5)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--query", help='arXiv query, e.g. all:"JEPA"')
+    source.add_argument("--ids-file", type=Path, help="Corpus file: one arXiv id per line")
+    parser.add_argument("--limit", type=int, default=5, help="Only used with --query")
     parser.add_argument("--force", action="store_true", help="Re-process existing papers")
     args = parser.parse_args()
 
@@ -26,10 +47,17 @@ def main() -> int:
     settings.ensure_dirs()
     logging.basicConfig(level=settings.log_level, format="%(levelname)s %(name)s: %(message)s")
 
-    # TODO(you): fetch papers from arXiv.
-    papers = arxiv_client.search(
-        args.query, limit=args.limit, delay_seconds=settings.arxiv_delay_seconds
-    )
+    if args.ids_file:
+        wanted = load_corpus_ids(args.ids_file)
+        log.info("corpus file lists %d papers", len(wanted))
+        papers = arxiv_client.fetch_by_ids(wanted, delay_seconds=settings.arxiv_delay_seconds)
+        missing = set(wanted) - {p.arxiv_id for p in papers}
+        if missing:
+            log.warning("arXiv returned nothing for %d id(s): %s", len(missing), sorted(missing))
+    else:
+        papers = arxiv_client.search(
+            args.query, limit=args.limit, delay_seconds=settings.arxiv_delay_seconds
+        )
     log.info("Found %d papers", len(papers))
 
     total_chunks = 0
@@ -43,7 +71,6 @@ def main() -> int:
         pdf_path = settings.papers_dir / f"{paper.arxiv_id}.pdf"
         pdf_parser.download_pdf(paper.pdf_url, pdf_path)
 
-        # TODO(you): extract, clean, chunk.
         raw = pdf_parser.extract_text(pdf_path)
         text = pdf_parser.clean_text(raw)
         chunks = chunker.chunk_paper(paper, text, settings.chunk_size, settings.chunk_overlap)
@@ -65,10 +92,6 @@ def main() -> int:
 
     log.info("done: %d new chunks", total_chunks)
 
-    # Sanity check you should actually do, not just read:
-    # open one .jsonl in data/chunks and read three chunks out loud. If they do not
-    # read as coherent, self-contained passages, your chunker needs work — and no
-    # amount of clever retrieval later will fix it.
     return 0
 
 
