@@ -27,8 +27,9 @@ def main() -> int:
     logging.basicConfig(level=settings.log_level, format="%(levelname)s %(name)s: %(message)s")
 
     # TODO(you): fetch papers from arXiv.
-    papers = arxiv_client.search(args.query, limit=args.limit,
-                                 delay_seconds=settings.arxiv_delay_seconds)
+    papers = arxiv_client.search(
+        args.query, limit=args.limit, delay_seconds=settings.arxiv_delay_seconds
+    )
     log.info("Found %d papers", len(papers))
 
     total_chunks = 0

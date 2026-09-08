@@ -9,14 +9,13 @@ You are not aiming for perfection. You are aiming to *look at the output*, notic
 specific ways it is broken, and clean up the ones that would hurt retrieval.
 """
 
+import logging
+import re
+from collections import Counter
 from pathlib import Path
 
 import httpx
 from pypdf import PdfReader
-
-import logging
-import re
-from collections import Counter
 
 from arxiv_rag.ingestion.chunker import heading_of
 
@@ -69,6 +68,7 @@ def extract_text(pdf_path: Path) -> str:
         log.warning("Failed to extract text from %s: %s", pdf_path.name, e)
         return ""
 
+
 def _strip_boilerplate(lines: list[str]) -> list[str]:
     """Drop page numbers, the arXiv margin stamp, and repeated running headers."""
     counts = Counter(ln.strip() for ln in lines if ln.strip())
@@ -104,11 +104,11 @@ def clean_text(raw: str) -> str:
             spaced.append(ln)
     text = "\n".join(spaced)
 
-    text = re.sub(r"-\n(?=\w)", "", text)         # de-hyphenate across line breaks
+    text = re.sub(r"-\n(?=\w)", "", text)  # de-hyphenate across line breaks
     text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\n{2,}", "\x00", text)        # mark real paragraph breaks
-    text = re.sub(r"[ \t]*\n[ \t]*", " ", text)   # line wraps become spaces
-    text = text.replace("\x00", "\n\n")           # restore paragraph breaks
+    text = re.sub(r"\n{2,}", "\x00", text)  # mark real paragraph breaks
+    text = re.sub(r"[ \t]*\n[ \t]*", " ", text)  # line wraps become spaces
+    text = text.replace("\x00", "\n\n")  # restore paragraph breaks
     text = re.sub(r"[ \t]+", " ", text)
     return text.strip()
 

@@ -32,6 +32,7 @@ References
 
 # --- given helpers: these already pass -------------------------------------------
 
+
 def test_heading_of_recognises_known_headings():
     assert heading_of("Introduction") == "Introduction"
     assert heading_of("REFERENCES") == "REFERENCES"
@@ -53,6 +54,7 @@ def test_count_tokens():
 
 
 # --- split_into_sections ----------------------------------------------------------
+
 
 def test_sections_are_in_document_order():
     titles = [s.title for s in split_into_sections(SAMPLE)]
@@ -84,6 +86,7 @@ def test_empty_sections_are_dropped():
 
 
 # --- strip_references -------------------------------------------------------------
+
 
 def test_strip_references_removes_bibliography():
     out = strip_references(SAMPLE)

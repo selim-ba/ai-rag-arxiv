@@ -54,18 +54,18 @@ def parse_atom_feed(xml: str) -> list[Paper]:
     feed = feedparser.parse(xml)
     entries = feed.entries
 
-    #dict_keys(['id', 'guidislink', 'link', 'updated', 'updated_parsed', 'published', 'published_parsed', 'title', 'title_detail', 'summary', 'summary_detail', 'authors', 'author_detail', 'author', 'links', 'arxiv_primary_category', 'tags'])
-    #print(entries[0].links)
+    # dict_keys(['id', 'guidislink', 'link', 'updated', 'updated_parsed', 'published', 'published_parsed', 'title', 'title_detail', 'summary', 'summary_detail', 'authors', 'author_detail', 'author', 'links', 'arxiv_primary_category', 'tags'])
+    # print(entries[0].links)
 
     for entry in entries:
         paper = Paper(
             arxiv_id=normalise_arxiv_id(entry.id),
-            title= " ".join(entry.title.split()),
-            authors = [author.name for author in entry.authors],
-            abstract = " ".join(entry.summary.split()),
-            published = datetime.fromisoformat(entry.published.replace("Z", "+00:00")).date(),
-            categories = [tag.term for tag in entry.tags],
-            pdf_url = next(link.href for link in entry.links if link.type == "application/pdf")
+            title=" ".join(entry.title.split()),
+            authors=[author.name for author in entry.authors],
+            abstract=" ".join(entry.summary.split()),
+            published=datetime.fromisoformat(entry.published.replace("Z", "+00:00")).date(),
+            categories=[tag.term for tag in entry.tags],
+            pdf_url=next(link.href for link in entry.links if link.type == "application/pdf"),
         )
 
         result.append(paper)
@@ -75,24 +75,21 @@ def parse_atom_feed(xml: str) -> list[Paper]:
 
 def search(query: str, limit: int = 10, delay_seconds: float = 3.0) -> list[Paper]:
     """Search arXiv and return parsed papers."""
-    
+
     _throttle(delay_seconds)
 
     params = {
-        "search_query":query,
+        "search_query": query,
         "start": 0,
-        "max_results":limit,
-        "sortBy":"relevance",
-        "sortOrder":"descending"
+        "max_results": limit,
+        "sortBy": "relevance",
+        "sortOrder": "descending",
     }
 
     response = httpx.get(ARXIV_API_URL, params=params, timeout=30)
-    response.raise_for_status() #raise an exception if the request failed (e.g., network error, 4xx or 5xx status code)
+    response.raise_for_status()  # raise an exception if the request failed (e.g., network error, 4xx or 5xx status code)
 
     return parse_atom_feed(response.text)
-
-
-
 
 
 def _unused_import_guard() -> None:  # pragma: no cover

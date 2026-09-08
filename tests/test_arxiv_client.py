@@ -23,9 +23,7 @@ def test_parses_all_entries(arxiv_atom_xml):
 def test_title_whitespace_is_collapsed(arxiv_atom_xml):
     """The fixture's first title is split across two lines, as arXiv really sends it."""
     paper = parse_atom_feed(arxiv_atom_xml)[0]
-    assert paper.title == (
-        "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks"
-    )
+    assert paper.title == ("Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks")
     assert "\n" not in paper.title
 
 
