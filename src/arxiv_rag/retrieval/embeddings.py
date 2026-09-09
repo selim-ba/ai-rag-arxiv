@@ -95,7 +95,9 @@ def embed_texts(texts: list[str], settings: Settings) -> list[list[float]]:
     # Step 3 - embed the cache misses in batches
     for batch in batched(cache_misses, settings.embedding_batch_size):
         response = client.embeddings.create(model=settings.embedding_model, input=batch)
-        for text, embedding in zip(batch, sorted(response.data, key=lambda d: d.index)):
+        for text, embedding in zip(
+            batch, sorted(response.data, key=lambda d: d.index), strict=True
+        ):
             key = cache_key(text, settings.embedding_model)
             cache.put(key, embedding.embedding)
 
