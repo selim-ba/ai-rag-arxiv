@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: install dev test lint fmt ingest clean
+.PHONY: install dev test lint fmt ingest index eval clean
 
 install:
 	@$(PYTHON) -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" \
@@ -25,7 +25,10 @@ fmt:
 	.venv/bin/ruff check --fix src tests scripts
 
 ingest:
-	.venv/bin/python -m scripts.ingest --query "retrieval augmented generation" --limit 5
+	.venv/bin/python -m scripts.ingest --ids-file corpus.txt
+
+index:
+	.venv/bin/python -m scripts.index
 
 clean:
 	rm -rf .pytest_cache .ruff_cache

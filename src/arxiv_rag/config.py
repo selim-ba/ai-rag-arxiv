@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     chunk_overlap: int = Field(default=120, ge=0)
 
     arxiv_delay_seconds: float = 3.0
+
+    # Retrieval
+    embedding_batch_size: int = Field(default=128, ge=1, le=2048)
+    top_k: int = Field(default=5, ge=1, le=50)
+
     log_level: str = "INFO"
 
     @property
@@ -44,9 +49,19 @@ class Settings(BaseSettings):
     def chunks_dir(self) -> Path:
         return self.data_dir / "chunks"
 
+    @property
+    def index_dir(self) -> Path:
+        return self.data_dir / "index"
+
+    @property
+    def embedding_cache_dir(self) -> Path:
+        return self.data_dir / "embedding_cache"
+
     def ensure_dirs(self) -> None:
         self.papers_dir.mkdir(parents=True, exist_ok=True)
         self.chunks_dir.mkdir(parents=True, exist_ok=True)
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+        self.embedding_cache_dir.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache

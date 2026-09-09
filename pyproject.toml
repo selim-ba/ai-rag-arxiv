@@ -12,6 +12,8 @@ dependencies = [
     "feedparser>=6.0",
     "pymupdf>=1.24",
     "tiktoken>=0.7",
+    "openai>=1.40",
+    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]
