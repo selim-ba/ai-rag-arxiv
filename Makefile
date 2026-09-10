@@ -33,6 +33,9 @@ index:
 check-eval:
 	.venv/bin/python -m scripts.check_eval --ranks
 
+eval:
+	.venv/bin/python -m scripts.eval
+
 clean:
 	rm -rf .pytest_cache .ruff_cache
 	find . -type d -name __pycache__ -not -path "./.venv/*" -exec rm -rf {} +

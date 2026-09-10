@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o-mini"
     embedding_model: str = "text-embedding-3-small"
 
+    # Deliberately separate from llm_model. A judge sharing a family with the generator
+    # tends to like its own phrasing, so you want to be able to swap in a stronger or
+    # different model without touching generation. Same model for now, one env var away
+    # from not being.
+    judge_model: str = "gpt-4o-mini"
+
     data_dir: Path = Path("data")
 
     chunk_size: int = Field(default=800, ge=100, le=4000)
