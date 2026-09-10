@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: install dev test lint fmt ingest index eval clean
+.PHONY: install dev test lint fmt ingest index check-eval eval clean
 
 install:
 	@$(PYTHON) -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" \
@@ -29,6 +29,9 @@ ingest:
 
 index:
 	.venv/bin/python -m scripts.index
+
+check-eval:
+	.venv/bin/python -m scripts.check_eval --ranks
 
 clean:
 	rm -rf .pytest_cache .ruff_cache
