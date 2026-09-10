@@ -43,24 +43,63 @@ JUDGE_SYSTEM_PROMPT = """You are a strict grader for a retrieval-augmented QA sy
 You are given a QUESTION, the PASSAGES that were retrieved, the ANSWER the system \
 produced, and a REFERENCE ANSWER written by a human.
 
-Grade two things independently:
+Grade two things that are INDEPENDENT of each other. Do them in this order.
 
-- faithful: true only if every factual claim in the ANSWER is supported by the \
-PASSAGES. An answer that is true in the world but not present in the passages is NOT \
-faithful. An answer that adds a plausible detail nobody wrote down is NOT faithful.
-- correct: true only if the ANSWER conveys the substance of the REFERENCE ANSWER. \
-Different wording is fine. Missing the main point, or contradicting it, is not.
+STEP 1 - faithful. Look ONLY at the PASSAGES and the ANSWER. Ignore the REFERENCE \
+ANSWER completely; it is not evidence about faithfulness. For each factual claim in the \
+ANSWER, find the span of a passage that states it. faithful is true only if every claim \
+has such a span. An answer that is true about the world but absent from the passages is \
+NOT faithful. In faithful_reason, quote a few words from the passage that settled it, \
+or name the claim you could not find.
 
-Reply with JSON only, no prose, in exactly this shape:
-{"faithful": true, "correct": false, "reason": "one sentence"}"""
+STEP 2 - correct. Decide whether the ANSWER answers THE QUESTION. The REFERENCE ANSWER \
+is ground truth for what a right answer contains, but it is deliberately denser than \
+the reply the system is asked for, and it often carries supporting detail the question \
+did not ask for.
+
+Apply this test, in order:
+1. Does the ANSWER contradict the REFERENCE ANSWER on a point of fact? If yes, correct \
+is false. Name the contradiction: quote the ANSWER's claim and the REFERENCE's claim.
+2. Is the ANSWER about a different system than the question asked about? If yes, \
+correct is false. Name both systems.
+3. Otherwise correct is TRUE.
+
+If you cannot complete sentence 1 or 2 with specific quoted text, you have not found a \
+failure, and correct is true. "Does not mention X" is not a failure. "Omits a key \
+detail" is not a failure. "Less complete than the reference" is not a failure. The \
+system is instructed to answer in three or four sentences; brevity is the specification, \
+not a defect.
+
+The two verdicts often disagree, and that disagreement is the useful signal:
+- faithful=true, correct=false: the system reported its passages accurately, but they \
+were the wrong passages. A retrieval failure, not a generation failure.
+- faithful=false, correct=true: the system answered from memory and got lucky. The most \
+dangerous case.
+
+Never justify faithful by referring to the REFERENCE ANSWER. If your faithful_reason \
+mentions the reference answer, you have graded the wrong thing.
+
+Reply with JSON only, no prose, with exactly these four keys. The angle brackets below \
+mark where you substitute your own verdict - they are placeholders, NOT default values, \
+and both booleans are genuinely independent:
+{"faithful": <true or false>, "faithful_reason": "<quote from a passage, or the claim \
+you could not find>", "correct": <true or false>, "correct_reason": "<the quoted \
+contradiction, or: no contradiction found>"}"""
 
 
 class Verdict(BaseModel):
-    """One graded answer."""
+    """One graded answer.
+
+    Two verdicts, two separate reasons. The separate reason fields are not decoration:
+    asking for one combined ``reason`` let the judge write a single sentence about the
+    reference answer and staple it to both verdicts, which collapsed the two axes into
+    one. Measured: faithful and correct agreed on every question until this was split.
+    """
 
     faithful: bool
     correct: bool
-    reason: str = ""
+    faithful_reason: str = Field(default="", description="evidence from the PASSAGES only")
+    correct_reason: str = Field(default="", description="comparison with the reference")
 
 
 class RefusalRecord(BaseModel):
@@ -139,7 +178,12 @@ def judge_answer(
         return Verdict.model_validate_json(response.choices[0].message.content or "")
     except Exception as exc:
         log.error("judge failed to parse: %s", exc)
-        return Verdict(faithful=False, correct=False, reason=f"judge failed: {exc}")
+        return Verdict(
+            faithful=False,
+            correct=False,
+            faithful_reason=f"judge failed: {exc}",
+            correct_reason=f"judge failed: {exc}",
+        )
 
 
 def _client(settings: Settings) -> OpenAI:

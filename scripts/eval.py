@@ -18,7 +18,7 @@ from pathlib import Path
 
 from arxiv_rag.config import get_settings
 from arxiv_rag.evaluation.judge import RefusalRecord, judge_answer, refusal_scores
-from arxiv_rag.evaluation.metrics import hit_at_k, mean, reciprocal_rank, recall_at_k
+from arxiv_rag.evaluation.metrics import hit_at_k, mean, recall_at_k, reciprocal_rank
 from arxiv_rag.retrieval.answer import answer_question, format_context
 from arxiv_rag.retrieval.store import ChunkStore, SearchHit
 
@@ -101,7 +101,8 @@ def main() -> None:
             record |= {
                 "faithful": verdict.faithful,
                 "correct": verdict.correct,
-                "judge_reason": verdict.reason,
+                "faithful_reason": verdict.faithful_reason,
+                "correct_reason": verdict.correct_reason,
             }
 
         with out_path.open("a") as fh:
@@ -152,7 +153,7 @@ def report(records: list[dict]) -> None:
     if unfaithful:
         print(f"\nUNFAITHFUL ({len(unfaithful)}) - read these by hand:")
         for r in unfaithful:
-            print(f"  {r['id']}  {r['judge_reason']}")
+            print(f"  {r['id']}  {r['faithful_reason']}")
 
 
 if __name__ == "__main__":
