@@ -34,12 +34,25 @@ Evaluation set: 40 hand-written questions — 20 factual, 10 comparison, 4 defin
 
 ### Retrieval (n = 34 questions with gold chunks)
 
-| Metric | Value |
-|---|---|
-| hit@1 | 0.088 |
-| hit@5 | 0.441 |
-| recall@5 | 0.348 |
-| MRR@5 | 0.213 |
+| Metric | Hand labels | **Audited labels** |
+|---|---|---|
+| hit@1 | 0.088 | **0.324** |
+| hit@5 | 0.441 | **0.618** |
+| recall@5 | 0.348 | **0.520** |
+| MRR@5 | 0.213 | **0.434** |
+
+**The jump is a correction, not an improvement.** Retrieval is byte-for-byte identical
+between the two columns; only the labels changed. The original `gold_chunk_ids` were
+written by hand from a handful of chunks, and the index holds 874 — so a question
+answered correctly from an unlabelled but valid chunk scored as a miss. 18 alternative
+sources across 13 questions were found and added (see *Auditing the gold labels* below).
+Everything before this correction should be read as a floor.
+
+The check that the correction did not corrupt anything: **correctness barely moved**
+(0.400 to 0.367, one question, within judge noise). It should not move at all — answer
+quality is graded against the hand-written `reference_answer`, which the audit never
+touched, and the generated answers are unchanged. A correctness score that had jumped
+alongside hit@5 would have meant the pipeline was leaking labels into grading.
 
 Precision@k is deliberately absent. Gold labels are incomplete — a retrieved chunk that
 is not on the gold list is often still a valid source — so precision would measure the
@@ -81,13 +94,13 @@ Splitting answer quality by whether retrieval succeeded:
 
 | | n | correctness | faithfulness |
 |---|---|---|---|
-| Gold chunk in top-5 | 15 | **0.667** | 1.000 |
-| Gold chunk not in top-5 | 15 | **0.133** | 0.867 |
+| Gold chunk in top-5 | 20 | **0.550** | 1.000 |
+| Gold chunk not in top-5 | 10 | **0.000** | 1.000 |
 
-Correctness is **5x higher** when retrieval works. Faithfulness is near-perfect either
-way, which is the diagnostic: the generator reports its passages accurately whether or
-not they are the right passages. Most incorrect answers had `recall@5 = 0.00` — the
-evidence was never in front of the model.
+Every single correct answer came from a successful retrieval. Faithfulness is 1.000 either way, which is the
+diagnostic: the generator reports its passages accurately whether or not they are the
+right passages. When the evidence is not retrieved, the answer is faithful to whatever
+was retrieved instead, and wrong.
 
 So the ceiling is hit@5 = 0.441, and Stage 3 (BM25 + reciprocal rank fusion + metadata
 filtering + cross-encoder reranking) is aimed at the right thing.
@@ -99,6 +112,46 @@ Two named cases carried forward as before/after tests:
 | "What data is V-JEPA trained on...?" | `2404.08471::0` | **170** | "V-JEPA" is a rare token; in a 1536-dim average it carries almost no weight. Dense retrieval returned V-JEPA **2** instead, and the answer was faithful to the wrong paper. |
 | "Why does JEPA training collapse to trivial solutions?" | `2605.09241::1` | 9 | Outside `k = 5` despite near-verbatim phrasing overlap — exactly what BM25 is for. |
 
+---
+
+## Auditing the gold labels
+
+The labels were written by hand while drafting each question, from chunks chosen by
+searching the index. But facts repeat: papers restate their predecessors and surveys
+describe everything. One paragraph of the model-based RL survey (`2107.08241::17`) turned
+out to answer three separate questions about PlaNet that were labelled only against the
+PlaNet paper.
+
+`scripts/gold_audit.py` retrieves the top 10 per question, asks the model which unlabelled
+candidates support a claim that an existing gold chunk also supports, and writes proposals
+to a review file. **Nothing is written to the eval set without a human decision** — the
+gold set is the ground truth every number here rests on, and generating it with the same
+model family being evaluated would be circular.
+
+Gold ids are stored as **groups**, meaning *one chunk from each group*:
+
+```jsonc
+[["1912.01603::7"], ["2010.02193::8"], ["2301.04104::5"]]   // 3 facts, all needed
+[["1811.04551::4", "2107.08241::17"]]                       // 1 fact, 2 valid sources
+```
+
+`recall@k` counts groups satisfied, not chunks matched. Without that distinction, adding
+a second valid source to a question would have *halved* its recall — improving the labels
+would have degraded the metric.
+
+**The auditor fabricated evidence.** Asked to quote the words supporting each proposal, it
+returned fluent, on-topic quotes that did not appear in the chunks they named — 11 of 54
+across a full run. Two were about to be accepted precisely because the quote read like
+confirmation. `evaluation/quotes.py` now verifies every quote against the chunk text
+(normalising ligatures, line breaks, case and punctuation, requiring a contiguous run
+covering 75% of the quote) and demotes any proposal whose evidence cannot be found. This
+is the third place in the codebase where a model's own report is verified in code rather
+than trusted: arXiv ids in citations, chunk ids in the audit, and now quoted spans.
+
+Result: 43 verified proposals, 18 accepted, 25 rejected. The three recurring rejection
+patterns were abstract boilerplate, performance results offered for mechanism questions,
+and — most dangerous — **wrong-system chunks**, such as DreamerV2 describing itself being
+offered as evidence for a question about IRIS.
 ---
 
 ## Known limitations

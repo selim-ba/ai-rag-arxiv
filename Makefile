@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: install dev test lint fmt ingest index check-eval eval clean
+.PHONY: install dev test lint fmt ingest index check-eval eval gold-audit gold-apply clean
 
 install:
 	@$(PYTHON) -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" \
@@ -35,6 +35,12 @@ check-eval:
 
 eval:
 	.venv/bin/python -m scripts.eval
+
+gold-audit:
+	.venv/bin/python -m scripts.gold_audit propose
+
+gold-apply:
+	.venv/bin/python -m scripts.gold_audit apply
 
 clean:
 	rm -rf .pytest_cache .ruff_cache

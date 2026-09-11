@@ -67,7 +67,7 @@ Full methodology, judge design and limitations in [`docs/results.md`](docs/resul
 
 | Configuration | hit@5 | Recall@5 | MRR@5 | Faithfulness | Refusal acc. |
 |---|---|---|---|---|---|
-| Dense only (Stage 2 baseline) | 0.441 | 0.348 | 0.213 | 0.933 | 0.900 |
+| Dense only (Stage 2 baseline) | 0.618 | 0.520 | 0.434 | 1.000 | 0.900 |
 | Hybrid + rerank (Stage 3) | _pending_ | | | | |
 
 **The system is retrieval-bound.** Splitting answer quality by whether the gold chunk
@@ -75,10 +75,9 @@ was retrieved:
 
 | | n | Correctness | Faithfulness |
 |---|---|---|---|
-| Gold chunk in top-5 | 15 | **0.667** | 1.000 |
-| Gold chunk not in top-5 | 15 | **0.133** | 0.867 |
+| Gold chunk in top-5 | 20 | **0.550** | 1.000 |
+| Gold chunk not in top-5 | 10 | **0.000** | 1.000 |
 
-Correctness is 5x higher when retrieval succeeds, while faithfulness stays near-perfect
-either way — the generator reports its passages accurately whether or not they are the
-right passages. All six unanswerable questions were refused, including a false-premise
+Every correct answer came from a successful retrieval. Faithfulness is 1.000 either way —
+the generator reports its passages accurately whether or not they are the right passages. All six unanswerable questions were refused, including a false-premise
 one. That is what Stage 3 is aimed at.

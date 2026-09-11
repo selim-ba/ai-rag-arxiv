@@ -82,6 +82,8 @@ def main() -> None:
 
         if gold:
             record |= {
+                "gold_groups_satisfied": sum(1 for group in gold if set(retrieved) & set(group)),
+                "gold_groups_total": len(gold),
                 "hit@1": hit_at_k(retrieved, gold, 1),
                 "hit@5": hit_at_k(retrieved, gold, 5),
                 "recall@5": recall_at_k(retrieved, gold, 5),

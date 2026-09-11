@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 from arxiv_rag.config import get_settings
+from arxiv_rag.evaluation.metrics import flatten
 
 REQUIRED = {"id", "question", "answerable", "gold_chunk_ids", "reference_answer"}
 KINDS = {"factual", "comparison", "definitional", "unanswerable"}
@@ -63,6 +64,16 @@ def main() -> int:
             problems.append(f"{q['id']}: answerable but no gold_chunk_ids")
         if not q["answerable"] and q["gold_chunk_ids"]:
             problems.append(f"{q['id']}: unanswerable but has gold_chunk_ids")
+        # gold_chunk_ids is a list of GROUPS: one chunk from each group is needed.
+        # A flat list of strings is the old schema and would silently score wrong.
+        for group in q["gold_chunk_ids"]:
+            if not isinstance(group, list):
+                problems.append(
+                    f"{q['id']}: gold_chunk_ids must be a list of lists "
+                    f"(groups), found a bare {type(group).__name__}"
+                )
+            elif not group:
+                problems.append(f"{q['id']}: empty gold group")
         questions.append(q)
 
     # every gold id must exist in the index
@@ -71,7 +82,7 @@ def main() -> int:
     store = ChunkStore.load(settings.index_dir)
     known = {c.chunk_id for c in store.chunks}
     for q in questions:
-        for gold in q["gold_chunk_ids"]:
+        for gold in flatten(q["gold_chunk_ids"]):
             if gold not in known:
                 problems.append(f"{q['id']}: gold chunk {gold!r} is not in the index")
 
@@ -87,7 +98,9 @@ def main() -> int:
     print(f"  by split: {splits}")
     print(f"  unanswerable: {sum(1 for q in questions if not q['answerable'])}")
     multi = sum(1 for q in questions if len(q["gold_chunk_ids"]) > 1)
-    print(f"  multi-gold:   {multi}")
+    alts = sum(1 for q in questions if any(len(g) > 1 for g in q["gold_chunk_ids"]))
+    print(f"  multi-group:  {multi}  (need a chunk from each group)")
+    print(f"  with alternatives: {alts}  (a group with more than one acceptable source)")
 
     if args.ranks:
         from arxiv_rag.retrieval.embeddings import embed_query
@@ -99,7 +112,9 @@ def main() -> int:
                 continue
             hits = store.search(embed_query(q["question"], settings), k=len(store))
             ranked = {h.chunk.chunk_id: i for i, h in enumerate(hits, 1)}
-            best = min((ranked[g] for g in q["gold_chunk_ids"] if g in ranked), default=None)
+            best = min(
+                (ranked[g] for g in flatten(q["gold_chunk_ids"]) if g in ranked), default=None
+            )
             label = (
                 "missed"
                 if best is None
