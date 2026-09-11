@@ -19,6 +19,7 @@ from pathlib import Path
 from arxiv_rag.config import get_settings
 from arxiv_rag.evaluation.judge import RefusalRecord, judge_answer, refusal_scores
 from arxiv_rag.evaluation.metrics import hit_at_k, mean, recall_at_k, reciprocal_rank
+from arxiv_rag.evaluation.timing import summarise
 from arxiv_rag.retrieval.answer import answer_question, format_context
 from arxiv_rag.retrieval.store import ChunkStore, SearchHit
 
@@ -78,6 +79,9 @@ def main() -> None:
             "refused": answer.refused,
             "retrieved_ids": retrieved,
             "gold_chunk_ids": gold,
+            "embed_ms": round(answer.embed_ms, 1),
+            "search_ms": round(answer.search_ms, 1),
+            "generate_ms": round(answer.generate_ms, 1),
         }
 
         if gold:
@@ -154,6 +158,17 @@ def report(records: list[dict]) -> None:
             f"  judge broke its contract: {len(bad)}/{len(judged)}"
             f"  {[r['id'] for r in bad] if bad else ''}"
         )
+
+    print(f"\nLATENCY   (n={len(records)}, milliseconds)")
+    for label, key in (
+        ("search  (local)", "search_ms"),
+        ("embed   (net+cache)", "embed_ms"),
+        ("generate(net)", "generate_ms"),
+    ):
+        values = [r[key] for r in records if r.get(key)]
+        if values:
+            t = summarise(values)
+            print(f"  {label:20} p50 {t['p50']:8.1f}  p95 {t['p95']:8.1f}  max {t['max']:8.1f}")
 
     print(f"\nREFUSAL   (n={len(records)})")
     for key, value in refusal.items():

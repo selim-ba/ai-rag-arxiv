@@ -40,6 +40,7 @@ Evaluation set: 40 hand-written questions — 20 factual, 10 comparison, 4 defin
 | hit@5 | 0.441 | **0.618** |
 | recall@5 | 0.348 | **0.520** |
 | MRR@5 | 0.213 | **0.434** |
+| search latency p95 | — | 5.1 ms |
 
 **The jump is a correction, not an improvement.** Retrieval is byte-for-byte identical
 between the two columns; only the labels changed. The original `gold_chunk_ids` were

@@ -23,6 +23,7 @@ Three things this module has to get right, in order of how much they matter:
 
 import logging
 import re
+from time import perf_counter
 
 from openai import OpenAI
 from pydantic import BaseModel, Field
@@ -73,6 +74,14 @@ class Answer(BaseModel):
     retrieved_ids: list[str] = Field(
         default_factory=list, description="chunk_ids fed to the model, best first"
     )
+    # Timings are split because they behave differently and change for different reasons.
+    # embed_ms is a network call AND disk-cached, so on a second run over the same
+    # questions it collapses to near zero - do not quote it across runs without saying
+    # whether the cache was warm. search_ms is local, deterministic and cache-free, which
+    # makes it the honest number to track as Stage 3 replaces what sits behind search.
+    embed_ms: float = Field(default=0.0, description="query embedding, network + cache")
+    search_ms: float = Field(default=0.0, description="retrieval only, local")
+    generate_ms: float = Field(default=0.0, description="the LLM call")
 
 
 # -- pure functions ------------------------------------------------------------------
@@ -189,13 +198,22 @@ def answer_question(
     k: int | None = None,
 ) -> Answer:
     """Retrieve, then generate. The whole RAG loop in one function."""
-    hits = store.search(embed_query(question, settings), k=settings.top_k if k is None else k)
+    started = perf_counter()
+    query_vector = embed_query(question, settings)
+    embedded_at = perf_counter()
+    hits = store.search(query_vector, k=settings.top_k if k is None else k)
+    searched_at = perf_counter()
+
+    embed_ms = (embedded_at - started) * 1000
+    search_ms = (searched_at - embedded_at) * 1000
 
     if not hits:
         return Answer(
             question=question,
             text=f"{REFUSAL_TOKEN} nothing was retrieved for this question.",
             refused=True,
+            embed_ms=embed_ms,
+            search_ms=search_ms,
         )
 
     context = format_context(hits)
@@ -207,6 +225,8 @@ def answer_question(
         ],
         temperature=0,
     )
+    generate_ms = (perf_counter() - searched_at) * 1000
+
     raw = response.choices[0].message.content or ""
     text = resolve_citations(raw, hits)
     return Answer(
@@ -215,6 +235,9 @@ def answer_question(
         citations=extract_citations(text),
         refused=is_refusal(text),
         retrieved_ids=[hit.chunk.chunk_id for hit in hits],
+        embed_ms=embed_ms,
+        search_ms=search_ms,
+        generate_ms=generate_ms,
     )
 
 
