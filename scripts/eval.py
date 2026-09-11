@@ -103,6 +103,7 @@ def main() -> None:
                 "correct": verdict.correct,
                 "faithful_reason": verdict.faithful_reason,
                 "correct_reason": verdict.correct_reason,
+                "judge_inconsistent": verdict.inconsistent,
             }
 
         with out_path.open("a") as fh:
@@ -141,9 +142,16 @@ def report(records: list[dict]) -> None:
     print(f"  MRR@5     {mean([r['rr'] for r in scored]):.3f}")
 
     if judged:
+        bad = [r for r in judged if r.get("judge_inconsistent")]
         print(f"\nANSWER QUALITY   (n={len(judged)}, answered questions only)")
         print(f"  faithfulness  {mean([float(r['faithful']) for r in judged]):.3f}")
         print(f"  correctness   {mean([float(r['correct']) for r in judged]):.3f}")
+        # Verdicts the judge produced in violation of its own output contract, twice.
+        # Quote this next to the scores: it is the error bar on them.
+        print(
+            f"  judge broke its contract: {len(bad)}/{len(judged)}"
+            f"  {[r['id'] for r in bad] if bad else ''}"
+        )
 
     print(f"\nREFUSAL   (n={len(records)})")
     for key, value in refusal.items():

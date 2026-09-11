@@ -64,6 +64,14 @@ is false. Name the contradiction: quote the ANSWER's claim and the REFERENCE's c
 correct is false. Name both systems.
 3. Otherwise correct is TRUE.
 
+Your correct_reason must begin with one of exactly three prefixes, and the prefix must \
+match the verdict:
+- "OK: " when correct is true, followed by one sentence saying what the answer got right.
+- "CONTRADICTION: " when correct is false by test 1, followed by both quoted claims.
+- "WRONG SYSTEM: " when correct is false by test 2, followed by both system names.
+There is no other way to fail. If you find yourself wanting to write correct_reason \
+without one of these prefixes, the verdict is OK.
+
 If you cannot complete sentence 1 or 2 with specific quoted text, you have not found a \
 failure, and correct is true. "Does not mention X" is not a failure. "Omits a key \
 detail" is not a failure. "Less complete than the reference" is not a failure. The \
@@ -83,8 +91,8 @@ Reply with JSON only, no prose, with exactly these four keys. The angle brackets
 mark where you substitute your own verdict - they are placeholders, NOT default values, \
 and both booleans are genuinely independent:
 {"faithful": <true or false>, "faithful_reason": "<quote from a passage, or the claim \
-you could not find>", "correct": <true or false>, "correct_reason": "<the quoted \
-contradiction, or: no contradiction found>"}"""
+you could not find - never a reference to the REFERENCE ANSWER>", "correct": <true or \
+false>, "correct_reason": "<OK: ... | CONTRADICTION: ... | WRONG SYSTEM: ...>"}"""
 
 
 class Verdict(BaseModel):
@@ -100,6 +108,10 @@ class Verdict(BaseModel):
     correct: bool
     faithful_reason: str = Field(default="", description="evidence from the PASSAGES only")
     correct_reason: str = Field(default="", description="comparison with the reference")
+    inconsistent: bool = Field(
+        default=False,
+        description="judge broke its own output contract twice; treat this verdict as unreliable",
+    )
 
 
 class RefusalRecord(BaseModel):
@@ -108,6 +120,50 @@ class RefusalRecord(BaseModel):
     question_id: str
     should_answer: bool = Field(description="the 'answerable' field from questions.jsonl")
     did_answer: bool = Field(description="not Answer.refused")
+
+
+OK_PREFIX = "OK:"
+FAILURE_PREFIXES = ("CONTRADICTION:", "WRONG SYSTEM:")
+
+
+def verdict_is_consistent(verdict: Verdict) -> bool:
+    """Did the judge follow its own rules?
+
+    The prompt sets three invariants. Prose cannot be checked; a required prefix can, so
+    the prompt now demands one and this function verifies it:
+
+    - ``correct`` is true  => ``correct_reason`` starts with ``OK:``
+    - ``correct`` is false => ``correct_reason`` starts with ``CONTRADICTION:`` or
+      ``WRONG SYSTEM:``
+    - ``faithful_reason`` never mentions the reference answer, because faithfulness is
+      judged against the passages alone
+
+    Measured before this existed: q018 and q023 came back with ``correct: false`` and
+    ``correct_reason: "no contradiction found"`` - a verdict that contradicts the rule
+    that produced it. About 7% of graded answers.
+
+    What this function must NOT do is *fix* anything. An inconsistent verdict is a signal
+    that the judge is unreliable on that question, and quietly flipping the boolean would
+    delete the signal and inflate the score. ``judge_answer`` retries once; a verdict that
+    fails twice is kept as-is and counted.
+    """
+    reason = verdict.correct_reason.strip()
+    if verdict.correct and not reason.startswith(OK_PREFIX):
+        return False
+    if not verdict.correct and not reason.startswith(FAILURE_PREFIXES):
+        return False
+    if "reference answer" in verdict.faithful_reason.lower():
+        return False
+    return True
+
+
+RETRY_NUDGE = (
+    "Your previous reply broke the output contract: when correct is false, "
+    "correct_reason must start with CONTRADICTION: or WRONG SYSTEM:; when correct is "
+    "true it must start with OK:; and faithful_reason must argue from the PASSAGES "
+    "only, never from the REFERENCE ANSWER. Re-grade and reply again in the same JSON "
+    "shape."
+)
 
 
 # -- pure function -------------------------------------------------------------------
@@ -164,26 +220,51 @@ def judge_answer(
         f"REFERENCE ANSWER:\n{reference_answer}"
     )
 
+    messages = [
+        {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
+        {"role": "user", "content": user_message},
+    ]
+
+    verdict = _grade(messages, settings)
+    if verdict is not None and verdict_is_consistent(verdict):
+        return verdict
+
+    # One retry, with the contract restated. Not a loop: a judge that breaks the contract
+    # twice is telling you something about this question, and the useful response is to
+    # record that rather than to keep paying for rerolls until it agrees with itself.
+    if verdict is not None:
+        log.warning("judge broke its output contract, retrying: %r", verdict.correct_reason[:80])
+        messages += [
+            {"role": "assistant", "content": verdict.model_dump_json()},
+            {"role": "user", "content": RETRY_NUDGE},
+        ]
+
+    retried = _grade(messages, settings)
+    if retried is None:
+        return Verdict(
+            faithful=False,
+            correct=False,
+            faithful_reason="judge failed to parse twice",
+            correct_reason="judge failed to parse twice",
+            inconsistent=True,
+        )
+    retried.inconsistent = not verdict_is_consistent(retried)
+    return retried
+
+
+def _grade(messages: list[dict], settings: Settings) -> Verdict | None:
+    """One judge call. ``None`` when the reply could not be parsed."""
     response = _client(settings).chat.completions.create(
         model=settings.judge_model,
-        messages=[
-            {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
+        messages=messages,
         temperature=0,
         response_format={"type": "json_object"},
     )
-
     try:
         return Verdict.model_validate_json(response.choices[0].message.content or "")
     except Exception as exc:
         log.error("judge failed to parse: %s", exc)
-        return Verdict(
-            faithful=False,
-            correct=False,
-            faithful_reason=f"judge failed: {exc}",
-            correct_reason=f"judge failed: {exc}",
-        )
+        return None
 
 
 def _client(settings: Settings) -> OpenAI:

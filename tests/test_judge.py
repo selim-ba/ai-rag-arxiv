@@ -2,7 +2,12 @@
 
 import pytest
 
-from arxiv_rag.evaluation.judge import RefusalRecord, refusal_scores
+from arxiv_rag.evaluation.judge import (
+    RefusalRecord,
+    Verdict,
+    refusal_scores,
+    verdict_is_consistent,
+)
 
 
 def rec(qid: str, should: bool, did: bool) -> RefusalRecord:
@@ -60,3 +65,56 @@ def test_empty_denominators_do_not_divide_by_zero():
 
     scores = refusal_scores([])
     assert scores["accuracy"] == 0.0
+
+
+# -- verdict_is_consistent -----------------------------------------------------------
+
+
+def verdict(correct: bool, correct_reason: str, faithful_reason: str = "passage P2 says 'x'"):
+    return Verdict(
+        faithful=True,
+        correct=correct,
+        faithful_reason=faithful_reason,
+        correct_reason=correct_reason,
+    )
+
+
+def test_pass_with_ok_prefix_is_consistent():
+    assert verdict_is_consistent(verdict(True, "OK: names CEM and the re-fitting step."))
+
+
+def test_fail_with_contradiction_prefix_is_consistent():
+    v = verdict(False, "CONTRADICTION: answer says 'degrades', reference says 'does not learn'.")
+    assert verdict_is_consistent(v)
+
+
+def test_fail_with_wrong_system_prefix_is_consistent():
+    v = verdict(False, "WRONG SYSTEM: answer describes V-JEPA 2, question asked about V-JEPA.")
+    assert verdict_is_consistent(v)
+
+
+def test_failing_verdict_with_no_failure_prefix_is_inconsistent():
+    """The measured bug: correct=false alongside 'no contradiction found'.
+
+    q018 and q023 did exactly this, about 7% of graded answers.
+    """
+    assert not verdict_is_consistent(verdict(False, "no contradiction found"))
+
+
+def test_failing_verdict_with_ok_prefix_is_inconsistent():
+    assert not verdict_is_consistent(verdict(False, "OK: conveys the main point."))
+
+
+def test_passing_verdict_with_failure_prefix_is_inconsistent():
+    """The mirror image: a pass justified by a contradiction it claims to have found."""
+    assert not verdict_is_consistent(verdict(True, "CONTRADICTION: answer says x."))
+
+
+def test_faithful_reason_citing_the_reference_is_inconsistent():
+    """Faithfulness is judged against the passages alone. This was the v1 judge bug."""
+    v = verdict(True, "OK: fine.", faithful_reason="matches the reference answer closely")
+    assert not verdict_is_consistent(v)
+
+
+def test_prefix_check_ignores_surrounding_whitespace():
+    assert verdict_is_consistent(verdict(True, "  OK: fine."))

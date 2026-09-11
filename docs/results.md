@@ -49,8 +49,15 @@ labelling, not the retriever.
 
 | Metric | Value |
 |---|---|
-| Faithfulness — every claim traceable to a retrieved passage | **0.967** |
-| Correctness — answers the question without contradicting the reference | 0.333 |
+| Faithfulness — every claim traceable to a retrieved passage | **0.933** |
+| Correctness — answers the question without contradicting the reference | 0.400 |
+| Judge output-contract violations | **0 / 30** |
+
+The judge must justify every failing verdict with a `CONTRADICTION:` or `WRONG SYSTEM:`
+prefix and quoted text, and every pass with `OK:`. A verdict whose prefix disagrees with
+its boolean, or whose faithfulness reason appeals to the reference answer, is a contract
+violation: `judge_answer` retries it once and then records it rather than repairing it.
+Quote this count next to the scores — it is the error bar on them.
 
 ### Refusal (n = 40)
 
@@ -74,13 +81,13 @@ Splitting answer quality by whether retrieval succeeded:
 
 | | n | correctness | faithfulness |
 |---|---|---|---|
-| Gold chunk in top-5 | 15 | **0.600** | 1.000 |
-| Gold chunk not in top-5 | 15 | **0.067** | 0.933 |
+| Gold chunk in top-5 | 15 | **0.667** | 1.000 |
+| Gold chunk not in top-5 | 15 | **0.133** | 0.867 |
 
-Correctness is **9x higher** when retrieval works. Faithfulness is near-perfect either
+Correctness is **5x higher** when retrieval works. Faithfulness is near-perfect either
 way, which is the diagnostic: the generator reports its passages accurately whether or
-not they are the right passages. 14 of the 20 incorrect answers had `recall@5 = 0.00` —
-the evidence was never in front of the model.
+not they are the right passages. Most incorrect answers had `recall@5 = 0.00` — the
+evidence was never in front of the model.
 
 So the ceiling is hit@5 = 0.441, and Stage 3 (BM25 + reciprocal rank fusion + metadata
 filtering + cross-encoder reranking) is aimed at the right thing.
@@ -108,17 +115,31 @@ Two named cases carried forward as before/after tests:
    default-to-true forcing function and placeholder-only examples. Each revision was
    validated against four questions with known real failures (q012, q017, q020, q030),
    which had to stay incorrect.
-3. **The judge still self-contradicts about 7% of the time.** q018 and q023 returned
-   `correct_reason: "no contradiction found"` alongside `correct: false`, which its own
-   step 3 forbids. Correctness would be 0.400 rather than 0.333 without them. The
-   principled fix is a small hand-labelled set of verdicts to measure judge agreement
-   against a human, rather than further prompt iteration.
+3. **Self-contradiction is fixed; weak reasoning is not.** The judge previously
+   returned `correct_reason: "no contradiction found"` alongside `correct: false` on
+   about 7% of graded answers. Requiring a machine-checkable prefix, verified by
+   `verdict_is_consistent` and retried once, took that to 0/30 and raised correctness
+   from 0.333 to 0.400.
+
+   The contract checks **form, not substance.** It catches a reason that disagrees with
+   its own verdict; it cannot catch a well-formed reason that is simply wrong. Two
+   verdicts now quote a "contradiction" that is really an omission — q018 cites
+   `'multi-step predictions of all distances'` against the reference's longer
+   `'...purely in latent space, without decoding extra images'`. Same claim, more
+   detail. What the prefix bought is auditability: a human can now check a verdict in
+   one line instead of re-reading five passages. The remaining fix is hand-labelled
+   verdicts to measure judge-human agreement, which is outstanding.
 4. **Judge and generator share a model** (`gpt-4o-mini`). `judge_model` is a separate
    setting so this can be changed without touching generation, but as it stands the
    grader may favour its own phrasing.
 5. **Tuning happened on dev.** Test split (n=8 judged) came out at correctness 0.250,
-   faithfulness 1.000, hit@5 0.500 — close enough to dev that the dev numbers are not
-   obviously inflated, but the split is small.
-6. **`false_refusal_rate` conflates two causes.** An over-cautious prompt and a genuine
+   faithfulness 1.000 against dev's 0.455 / 0.909 — the gap is within what n=8 can
+   resolve, but the split is small and the dev numbers should be read as the optimistic
+   end.
+6. **The judge is not run-to-run stable.** Across runs at `temperature=0` with no change
+   to the generator, faithfulness moved between 0.933 and 0.967 — a single flipped
+   verdict is 3.3 points at n=30. Differences smaller than about 5 points between
+   configurations are noise, not signal.
+7. **`false_refusal_rate` conflates two causes.** An over-cautious prompt and a genuine
    retrieval failure that the generator handled honestly both land in the same bucket.
    q002 refused with its gold chunk at rank 102, which is arguably correct behaviour.
