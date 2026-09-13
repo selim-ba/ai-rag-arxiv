@@ -1,20 +1,19 @@
 """Stage 2 - the HTTP layer. No API key, no index on disk, no network.
 
-``answer_question`` is monkeypatched and the store is injected through
+``answer_question`` is monkeypatched and the retriever is injected through
 ``dependency_overrides``. That is the point of routing both through seams: the endpoint
 can be tested for what it actually does - translate HTTP to a library call and back -
-without any of the machinery underneath it.
+without an index, an API key, or a network call.
 """
 
-import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
 from arxiv_rag.api import main as api
-from arxiv_rag.api.main import app, get_store
+from arxiv_rag.api.main import app, get_retriever
 from arxiv_rag.ingestion.models import Chunk
 from arxiv_rag.retrieval.answer import Answer
-from arxiv_rag.retrieval.store import ChunkStore
+from arxiv_rag.retrieval.store import SearchHit
 
 CHUNKS = [
     Chunk(
@@ -38,17 +37,23 @@ CHUNKS = [
 ]
 
 
+class FakeRetriever:
+    """Satisfies the Retriever protocol without an index or a network call."""
+
+    def search(self, query: str, k: int = 5, chunk_filter=None) -> list[SearchHit]:
+        return [SearchHit(chunk, 1.0) for chunk in CHUNKS[:k]]
+
+
 @pytest.fixture
 def client(monkeypatch):
-    store = ChunkStore(CHUNKS, np.array([[1.0, 0.0], [0.0, 1.0]]))
-    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_retriever] = FakeRetriever
     with TestClient(app) as c:
         c.app.state.chunks_by_id = {ch.chunk_id: ch for ch in CHUNKS}
         yield c
     app.dependency_overrides.clear()
 
 
-def fake_answer(question, store, settings, k=None):
+def fake_answer(question, retriever, settings, k=None, chunk_filter=None):
     return Answer(
         question=question,
         text="PlaNet plans with CEM [1811.04551].",
@@ -97,7 +102,7 @@ def test_sources_preserve_rank_order(client, monkeypatch):
 
 
 def test_refusal_is_reported_not_hidden(client, monkeypatch):
-    def refusing(question, store, settings, k=None):
+    def refusing(question, retriever, settings, k=None, chunk_filter=None):
         return Answer(question=question, text="INSUFFICIENT_CONTEXT no.", refused=True)
 
     monkeypatch.setattr(api, "answer_question", refusing)
@@ -119,6 +124,40 @@ def test_ask_returns_503_when_no_index_is_loaded():
     """A container with an unmounted volume should say so, not crash on startup."""
     app.dependency_overrides.clear()
     with TestClient(app) as c:
-        c.app.state.store = None
+        c.app.state.retriever = None
         response = c.post("/ask", json={"question": "a real question"})
     assert response.status_code == 503
+
+
+def test_the_retriever_reaches_answer_question(monkeypatch):
+    """The seam: dense, hybrid and hybrid+rerank all satisfy one shape.
+
+    The endpoint is handed a Retriever, never asks what kind, and passes it straight to
+    `answer_question`. That is what makes swapping the shipped configuration a constructor
+    change in the lifespan handler rather than an edit here.
+
+    `answer_question` is replaced by a stand-in that really calls the retriever, so this
+    asserts the wiring rather than a hardcoded return - and still makes no network call.
+    """
+
+    class OnlySecondChunk:
+        def search(self, query, k=5, chunk_filter=None):
+            return [SearchHit(CHUNKS[1], 0.5)]
+
+    def answer_using_the_retriever(question, retriever, settings, k=None, chunk_filter=None):
+        hits = retriever.search(question, k or 5)
+        return Answer(
+            question=question,
+            text="answered",
+            retrieved_ids=[h.chunk.chunk_id for h in hits],
+        )
+
+    monkeypatch.setattr(api, "answer_question", answer_using_the_retriever)
+    app.dependency_overrides[get_retriever] = OnlySecondChunk
+    try:
+        with TestClient(app) as c:
+            c.app.state.chunks_by_id = {ch.chunk_id: ch for ch in CHUNKS}
+            body = c.post("/ask", json={"question": "anything at all"}).json()
+    finally:
+        app.dependency_overrides.clear()
+    assert [s["chunk_id"] for s in body["sources"]] == ["1912.01603::7"]

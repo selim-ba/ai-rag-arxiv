@@ -29,8 +29,9 @@ from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from arxiv_rag.config import Settings
-from arxiv_rag.retrieval.embeddings import embed_query
-from arxiv_rag.retrieval.store import ChunkStore, SearchHit
+from arxiv_rag.retrieval.filters import ChunkFilter
+from arxiv_rag.retrieval.hybrid import Retriever
+from arxiv_rag.retrieval.store import SearchHit
 
 log = logging.getLogger(__name__)
 
@@ -74,13 +75,11 @@ class Answer(BaseModel):
     retrieved_ids: list[str] = Field(
         default_factory=list, description="chunk_ids fed to the model, best first"
     )
-    # Timings are split because they behave differently and change for different reasons.
-    # embed_ms is a network call AND disk-cached, so on a second run over the same
-    # questions it collapses to near zero - do not quote it across runs without saying
-    # whether the cache was warm. search_ms is local, deterministic and cache-free, which
-    # makes it the honest number to track as Stage 3 replaces what sits behind search.
-    embed_ms: float = Field(default=0.0, description="query embedding, network + cache")
-    search_ms: float = Field(default=0.0, description="retrieval only, local")
+    # One retrieval number, not a breakdown. Once retrieval is pluggable, "embedding
+    # time" is an implementation detail of one retriever: BM25 has no embedding step and a
+    # reranker's cost is a model forward pass. What the caller can compare across
+    # configurations is total time to candidates.
+    retrieve_ms: float = Field(default=0.0, description="whatever the retriever did")
     generate_ms: float = Field(default=0.0, description="the LLM call")
 
 
@@ -193,27 +192,25 @@ def is_refusal(text: str) -> bool:
 
 def answer_question(
     question: str,
-    store: ChunkStore,
+    retriever: Retriever,
     settings: Settings,
     k: int | None = None,
+    chunk_filter: ChunkFilter | None = None,
 ) -> Answer:
     """Retrieve, then generate. The whole RAG loop in one function."""
     started = perf_counter()
-    query_vector = embed_query(question, settings)
-    embedded_at = perf_counter()
-    hits = store.search(query_vector, k=settings.top_k if k is None else k)
-    searched_at = perf_counter()
-
-    embed_ms = (embedded_at - started) * 1000
-    search_ms = (searched_at - embedded_at) * 1000
+    hits = retriever.search(
+        question, k=settings.top_k if k is None else k, chunk_filter=chunk_filter
+    )
+    retrieved_at = perf_counter()
+    retrieve_ms = (retrieved_at - started) * 1000
 
     if not hits:
         return Answer(
             question=question,
             text=f"{REFUSAL_TOKEN} nothing was retrieved for this question.",
             refused=True,
-            embed_ms=embed_ms,
-            search_ms=search_ms,
+            retrieve_ms=retrieve_ms,
         )
 
     context = format_context(hits)
@@ -225,7 +222,7 @@ def answer_question(
         ],
         temperature=0,
     )
-    generate_ms = (perf_counter() - searched_at) * 1000
+    generate_ms = (perf_counter() - retrieved_at) * 1000
 
     raw = response.choices[0].message.content or ""
     text = resolve_citations(raw, hits)
@@ -235,8 +232,7 @@ def answer_question(
         citations=extract_citations(text),
         refused=is_refusal(text),
         retrieved_ids=[hit.chunk.chunk_id for hit in hits],
-        embed_ms=embed_ms,
-        search_ms=search_ms,
+        retrieve_ms=retrieve_ms,
         generate_ms=generate_ms,
     )
 

@@ -161,6 +161,41 @@ set, all five passages come from the paper asked about, so the "faithful answer 
 V-JEPA 2 instead of V-JEPA" failure becomes impossible rather than unlikely. It is also the
 mechanism a Stage 4 agent needs to act on "this question names one paper".
 
+### End to end, with the generator behind each retriever
+
+`make eval` on all 40 questions, `answer_question` fed by each retriever in turn:
+
+| | dense | hybrid |
+|---|---|---|
+| hit@1 / hit@5 | 0.324 / 0.618 | **0.382 / 0.647** |
+| faithfulness | 0.933 | 1.000 |
+| correctness | 0.433 | 0.406 |
+| answer_rate (answerable) | 0.882 | **0.941** |
+| refusal_rate (unanswerable) | **1.000** | 0.833 |
+| refusal accuracy | 0.900 | **0.925** |
+| retrieve p95 | 8.2 ms | 11.3 ms |
+
+**Answer quality did not move, and this eval set cannot tell whether it should have.**
+Correctness 0.433 vs 0.406 is a single question. Judge-scored metrics on ~31 answered
+questions have a resolution of about 3 points per flipped verdict, and run-to-run variation
+with no code change at all has been measured at 0.367-0.452. A real 5-point effect is below
+the noise floor here; resolving one would need several hundred questions. Retrieval metrics
+are deterministic and do not have this problem, which is why they are the headline for this
+stage.
+
+**Better retrieval caused a hallucination, and that is the interesting result.** q040 is
+deliberately unanswerable - "how many GPU hours does V-JEPA need compared with I-JEPA?",
+where I-JEPA reports GPU hours and V-JEPA reports iterations, so the comparison exists in
+neither paper. Under dense retrieval the context was poor enough that the system refused.
+Under hybrid, BM25 pulled in genuinely relevant V-JEPA and I-JEPA passages, and better
+looking context talked the generator into answering.
+
+Net refusal accuracy still improved (0.900 to 0.925): two false refusals traded for one
+hallucination. Whether that is a good trade is a product question, not a metrics question -
+for a cited research assistant, probably yes; where a confident wrong answer is expensive,
+no. It is only visible at all because the eval set contains six unanswerable questions and
+refusal is measured separately from correctness.
+
 **Shipped default: hybrid without reranking.** The listwise reranker is kept behind a flag.
 A 9-second request is the wrong default for a system whose generation step is already the
 slow part, and Stage 4's agent is the right place to spend it — escalating to reranking

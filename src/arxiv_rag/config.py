@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     # Retrieval
     embedding_batch_size: int = Field(default=128, ge=1, le=2048)
     top_k: int = Field(default=5, ge=1, le=50)
+    # How deep each retriever goes before reciprocal rank fusion. Measured across 34
+    # questions the choice barely matters (hit@1 identical from 5 to 50), so this is a
+    # reasonable default rather than a tuned one.
+    fusion_depth: int = Field(default=20, ge=1, le=200)
 
     log_level: str = "INFO"
 

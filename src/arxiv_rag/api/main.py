@@ -30,6 +30,8 @@ from arxiv_rag import __version__
 from arxiv_rag.config import Settings, get_settings
 from arxiv_rag.ingestion.models import Chunk
 from arxiv_rag.retrieval.answer import answer_question
+from arxiv_rag.retrieval.bm25 import BM25Index
+from arxiv_rag.retrieval.hybrid import DenseRetriever, HybridRetriever, Retriever
 from arxiv_rag.retrieval.store import ChunkStore
 
 log = logging.getLogger(__name__)
@@ -52,10 +54,25 @@ async def lifespan(app: FastAPI):
         store = None
         log.warning("no index at %s (%s) - /ask will return 503", settings.index_dir, exc)
 
+    # Hybrid is the shipped default: dense + BM25 fused by reciprocal rank. Measured on the
+    # eval set, hit@1 0.324 -> 0.382 and MRR 0.457 -> 0.498 against dense alone, for about
+    # 1ms. Reranking is deliberately NOT wired in here: the listwise reranker scores better
+    # still (hit@1 0.529) but costs 7.8s at p95, which is the wrong default for a request
+    # whose generation step is already over a second. See docs/results.md.
+    retriever = None
+    if store is not None:
+        retriever = HybridRetriever(
+            [DenseRetriever(store, settings), BM25Index(store.chunks)],
+            depth=settings.fusion_depth,
+        )
+        log.info("retriever: hybrid dense+bm25, depth %d", settings.fusion_depth)
+
     app.state.store = store
+    app.state.retriever = retriever
     app.state.chunks_by_id = {c.chunk_id: c for c in store.chunks} if store else {}
     yield
     app.state.store = None
+    app.state.retriever = None
 
 
 app = FastAPI(
@@ -66,17 +83,17 @@ app = FastAPI(
 )
 
 
-def get_store(request: Request) -> ChunkStore:
-    """Dependency: the loaded index, or 503. Given to you.
+def get_retriever(request: Request) -> Retriever:
+    """Dependency: the configured retriever, or 503. Given to you.
 
     Going through a dependency rather than reading ``app.state`` inline is what lets the
-    tests swap in a fake store with ``app.dependency_overrides``, without a running
-    index and without touching the endpoint.
+    tests swap in a fake retriever with ``app.dependency_overrides``, without an index,
+    without a network call, and without touching the endpoint.
     """
-    store = request.app.state.store
-    if store is None:
+    retriever = request.app.state.retriever
+    if retriever is None:
         raise HTTPException(status_code=503, detail="index not loaded")
-    return store
+    return retriever
 
 
 class AskRequest(BaseModel):
@@ -142,10 +159,10 @@ def to_source(chunk: Chunk) -> Source:
 def ask(
     payload: AskRequest,
     settings: Settings = Depends(get_settings),
-    store: ChunkStore = Depends(get_store),
+    retriever: Retriever = Depends(get_retriever),
 ) -> AskResponse:
     """Answer one question against the indexed corpus."""
-    answer = answer_question(payload.question, store, settings, k=payload.k)
+    answer = answer_question(payload.question, retriever, settings, k=payload.k)
     by_id = app.state.chunks_by_id
     sources = [to_source(by_id[cid]) for cid in answer.retrieved_ids if cid in by_id]
     return AskResponse(

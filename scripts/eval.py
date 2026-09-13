@@ -21,6 +21,8 @@ from arxiv_rag.evaluation.judge import RefusalRecord, judge_answer, refusal_scor
 from arxiv_rag.evaluation.metrics import hit_at_k, mean, recall_at_k, reciprocal_rank
 from arxiv_rag.evaluation.timing import summarise
 from arxiv_rag.retrieval.answer import answer_question, format_context
+from arxiv_rag.retrieval.bm25 import BM25Index
+from arxiv_rag.retrieval.hybrid import DenseRetriever, HybridRetriever
 from arxiv_rag.retrieval.store import ChunkStore, SearchHit
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,11 +50,29 @@ def main() -> None:
     parser.add_argument("--split", default="all", choices=["all", "dev", "test"])
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--no-judge", action="store_true")
+    parser.add_argument(
+        "--retriever",
+        default="hybrid",
+        choices=["dense", "hybrid", "hybrid+rerank"],
+        help="which retriever the generator is fed by (default: the shipped one)",
+    )
     args = parser.parse_args()
 
     settings = get_settings()
     store = ChunkStore.load(settings.index_dir)
     by_id = {c.chunk_id: c for c in store.chunks}
+
+    dense = DenseRetriever(store, settings)
+    if args.retriever == "dense":
+        retriever = dense
+    else:
+        retriever = HybridRetriever([dense, BM25Index(store.chunks)], depth=settings.fusion_depth)
+        if args.retriever == "hybrid+rerank":
+            from arxiv_rag.retrieval.rerank import LLMListwiseReranker, RerankingRetriever
+
+            retriever = RerankingRetriever(
+                retriever, LLMListwiseReranker(settings), depth=settings.fusion_depth
+            )
     questions = load_questions(args.split)[: args.limit]
 
     out_dir = ROOT / "data" / "eval"
@@ -61,10 +81,10 @@ def main() -> None:
     out_path = out_dir / f"run-{stamp}.jsonl"
 
     records: list[dict] = []
-    print(f"{len(questions)} questions -> {out_path.name}\n")
+    print(f"{len(questions)} questions, retriever={args.retriever} -> {out_path.name}\n")
 
     for i, q in enumerate(questions, start=1):
-        answer = answer_question(q["question"], store, settings)
+        answer = answer_question(q["question"], retriever, settings)
         gold = q["gold_chunk_ids"]
         retrieved = answer.retrieved_ids
 
@@ -79,8 +99,7 @@ def main() -> None:
             "refused": answer.refused,
             "retrieved_ids": retrieved,
             "gold_chunk_ids": gold,
-            "embed_ms": round(answer.embed_ms, 1),
-            "search_ms": round(answer.search_ms, 1),
+            "retrieve_ms": round(answer.retrieve_ms, 1),
             "generate_ms": round(answer.generate_ms, 1),
         }
 
@@ -160,11 +179,7 @@ def report(records: list[dict]) -> None:
         )
 
     print(f"\nLATENCY   (n={len(records)}, milliseconds)")
-    for label, key in (
-        ("search  (local)", "search_ms"),
-        ("embed   (net+cache)", "embed_ms"),
-        ("generate(net)", "generate_ms"),
-    ):
+    for label, key in (("retrieve", "retrieve_ms"), ("generate", "generate_ms")):
         values = [r[key] for r in records if r.get(key)]
         if values:
             t = summarise(values)
