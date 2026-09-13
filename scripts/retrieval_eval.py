@@ -20,6 +20,7 @@ from arxiv_rag.evaluation.metrics import flatten, hit_at_k, mean, recall_at_k, r
 from arxiv_rag.evaluation.timing import summarise
 from arxiv_rag.retrieval.bm25 import BM25Index
 from arxiv_rag.retrieval.embeddings import embed_query
+from arxiv_rag.retrieval.hybrid import DenseRetriever, HybridRetriever
 from arxiv_rag.retrieval.store import ChunkStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,6 +70,13 @@ def score(name: str, retrieve, questions: list[dict], k: int) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ranks", action="store_true", help="per-question gold rank")
+    parser.add_argument(
+        "--depths",
+        type=int,
+        nargs="*",
+        default=[10, 30],
+        help="fusion depths to compare (how deep each retriever goes before fusing)",
+    )
     args = parser.parse_args()
 
     settings = get_settings()
@@ -88,6 +96,18 @@ def main() -> None:
         score("bm25", sparse, questions, k),
     ]
 
+    # Depth is a real knob, not a constant to guess once: measured on q030, gold lands at
+    # fused rank 3 at depth 10 and rank 11 at depth 50, because every extra candidate that
+    # BOTH retrievers found outscores one that only BM25 found.
+    dense_retriever = DenseRetriever(store, settings)
+    for depth in args.depths:
+        hybrid = HybridRetriever([dense_retriever, bm25], depth=depth)
+
+        def fused(question: str, n: int, _h=hybrid) -> list[str]:
+            return [h.chunk.chunk_id for h in _h.search(question, k=n)]
+
+        results.append(score(f"hybrid d={depth}", fused, questions, k))
+
     print(f"{len(questions)} answerable questions, {len(store)} chunks, k={k}\n")
     print(
         f"{'retriever':<14} {'hit@1':>7} {'hit@5':>7} {'recall@5':>9} {'MRR':>7} "
@@ -103,8 +123,8 @@ def main() -> None:
     # method were simply better everywhere, there would be nothing to fuse.
     by_id = {r["name"]: {row["id"]: row for row in r["rows"]} for r in results}
     names = [r["name"] for r in results]
-    if len(names) == 2:
-        a, b = names
+    if len(names) >= 2:
+        a, b = names[0], names[1]
         only_a = [q for q in by_id[a] if by_id[a][q]["hit@5"] and not by_id[b][q]["hit@5"]]
         only_b = [q for q in by_id[b] if by_id[b][q]["hit@5"] and not by_id[a][q]["hit@5"]]
         both = [q for q in by_id[a] if by_id[a][q]["hit@5"] and by_id[b][q]["hit@5"]]
