@@ -25,6 +25,7 @@ from typing import Protocol
 from arxiv_rag.config import Settings
 from arxiv_rag.retrieval.bm25 import BM25Index
 from arxiv_rag.retrieval.embeddings import embed_query
+from arxiv_rag.retrieval.filters import ChunkFilter, allowed_indices
 from arxiv_rag.retrieval.fusion import DEFAULT_K, fuse_hits
 from arxiv_rag.retrieval.store import ChunkStore, SearchHit
 
@@ -42,7 +43,9 @@ class Retriever(Protocol):
     which is exactly the claim being made.
     """
 
-    def search(self, query: str, k: int = 5) -> list[SearchHit]: ...
+    def search(
+        self, query: str, k: int = 5, chunk_filter: ChunkFilter | None = None
+    ) -> list[SearchHit]: ...
 
 
 class DenseRetriever:
@@ -60,8 +63,11 @@ class DenseRetriever:
     def __len__(self) -> int:
         return len(self.store)
 
-    def search(self, query: str, k: int = 5) -> list[SearchHit]:
-        return self.store.search(self.embed(query, self.settings), k=k)
+    def search(
+        self, query: str, k: int = 5, chunk_filter: ChunkFilter | None = None
+    ) -> list[SearchHit]:
+        allowed = allowed_indices(self.store.chunks, chunk_filter)
+        return self.store.search(self.embed(query, self.settings), k=k, allowed=allowed)
 
 
 class HybridRetriever:
@@ -83,7 +89,9 @@ class HybridRetriever:
         self.rrf_k = rrf_k
         self.weights = weights
 
-    def search(self, query: str, k: int = 5) -> list[SearchHit]:
+    def search(
+        self, query: str, k: int = 5, chunk_filter: ChunkFilter | None = None
+    ) -> list[SearchHit]:
         """Run every retriever ``depth`` deep, fuse the rankings, return the top ``k``.
 
         - **Retrieve ``depth``, return ``k``.** Fusing the top 5 of each defeats the point;
@@ -92,7 +100,9 @@ class HybridRetriever:
         - **A retriever returning nothing is normal, not an error.** BM25 returns ``[]``
           when no indexed term appears in the query. Fusion already ignores empty rankings.
         """
-        hit_lists = [retriever.search(query, self.depth) for retriever in self.retrievers]
+        hit_lists = [
+            retriever.search(query, self.depth, chunk_filter) for retriever in self.retrievers
+        ]
         return fuse_hits(hit_lists, k=self.rrf_k, top_k=k, weights=self.weights)
 
 

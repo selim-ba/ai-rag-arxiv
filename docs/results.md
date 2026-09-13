@@ -152,6 +152,15 @@ answered from the very top result, MRR up 0.10, and both deliberately planted ha
 pool and cannot add to it. Cost is about $0.002 per query — but p95 is **7.8 seconds**
 against 2.6 ms, roughly 3000×, on top of ~1.3 s of generation.
 
+**Metadata filtering has no row, deliberately.** `ChunkFilter` restricts retrieval by
+`arxiv_id` or `section`, applied before ranking so `k` still means `k`. The eval questions
+carry no paper constraints, so it cannot move hit@5 — and measured on q030 it actually
+pushed the gold chunk from rank 3 to rank 5, because a filter narrows the candidate pool
+without improving the ranking inside it. What it does buy is a guarantee: with the filter
+set, all five passages come from the paper asked about, so the "faithful answer about
+V-JEPA 2 instead of V-JEPA" failure becomes impossible rather than unlikely. It is also the
+mechanism a Stage 4 agent needs to act on "this question names one paper".
+
 **Shipped default: hybrid without reranking.** The listwise reranker is kept behind a flag.
 A 9-second request is the wrong default for a system whose generation step is already the
 slow part, and Stage 4's agent is the right place to spend it — escalating to reranking

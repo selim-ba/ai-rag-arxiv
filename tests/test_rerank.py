@@ -37,9 +37,11 @@ class FakeBase:
     def __init__(self, order: list[str]) -> None:
         self.order = order
         self.asked_for: list[int] = []
+        self.filters: list = []
 
-    def search(self, query: str, k: int = 5) -> list[SearchHit]:
+    def search(self, query: str, k: int = 5, chunk_filter=None) -> list[SearchHit]:
         self.asked_for.append(k)
+        self.filters.append(chunk_filter)
         # descending base scores, so base order is obvious in the input
         return [SearchHit(CHUNKS[n], 1.0 - i * 0.1) for i, n in enumerate(self.order[:k])]
 
@@ -190,3 +192,13 @@ def test_every_candidate_gets_a_score():
 def test_ranked_always_outscores_unranked():
     scores = order_to_scores([5], 5)
     assert scores[4] > max(scores[:4])
+
+
+def test_the_filter_reaches_the_base_retriever():
+    """A reranker cannot enforce a filter itself - it only reorders what it is handed."""
+    from arxiv_rag.retrieval.filters import ChunkFilter
+
+    base = FakeBase(["a", "c"])
+    f = ChunkFilter(sections=frozenset({"method"}))
+    RerankingRetriever(base, KeywordReranker(), depth=30).search("the answer", k=1, chunk_filter=f)
+    assert base.filters == [f]

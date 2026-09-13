@@ -47,14 +47,35 @@ class ChunkStore:
     def __len__(self) -> int:
         return len(self.chunks)
 
-    def search(self, query_vector: list[float] | np.ndarray, k: int = 5) -> list[SearchHit]:
-        """Return the ``k`` chunks closest to ``query_vector``, best first."""
+    def search(
+        self,
+        query_vector: list[float] | np.ndarray,
+        k: int = 5,
+        allowed: set[int] | None = None,
+    ) -> list[SearchHit]:
+        """Return the ``k`` chunks closest to ``query_vector``, best first.
+
+        ``allowed`` restricts which chunk positions may be returned. It is applied to the
+        score vector *before* ranking - a pre-filter - so ``k`` still means ``k``. Ranking
+        first and dropping afterwards would return fewer than ``k`` results and could never
+        surface a permitted chunk that ranked 40th.
+        """
         if k <= 0:
             return []
         query = np.asarray(query_vector, dtype=float)
         query = query / np.linalg.norm(query)  # normalise to unit length, same as the store
 
         scores = self.vectors @ query  # dot product with every chunk, shape (n_chunks,)
+        if allowed is not None:
+            if not allowed:
+                return []
+            mask = np.full(scores.shape, False)
+            mask[list(allowed)] = True
+            # -inf rather than 0: cosine similarity is legitimately negative, so zeroing
+            # would rank a forbidden chunk above a permitted but dissimilar one.
+            scores = np.where(mask, scores, -np.inf)
+            k = min(k, len(allowed))
+
         indices = np.argsort(scores)[::-1][:k]  # top k indices, best first
 
         return [SearchHit(self.chunks[i], float(scores[i])) for i in indices]

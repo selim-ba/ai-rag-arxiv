@@ -34,6 +34,7 @@ from typing import Protocol
 
 from arxiv_rag.config import Settings
 from arxiv_rag.ingestion.models import Chunk
+from arxiv_rag.retrieval.filters import ChunkFilter
 from arxiv_rag.retrieval.hybrid import Retriever
 from arxiv_rag.retrieval.store import SearchHit
 
@@ -104,9 +105,11 @@ class RerankingRetriever:
         self.reranker = reranker
         self.depth = depth
 
-    def search(self, query: str, k: int = 5) -> list[SearchHit]:
+    def search(
+        self, query: str, k: int = 5, chunk_filter: ChunkFilter | None = None
+    ) -> list[SearchHit]:
         """Retrieve ``self.depth`` candidates, rescore them all, return the best ``k``."""
-        candidates = self.base.search(query, self.depth)
+        candidates = self.base.search(query, self.depth, chunk_filter)
         if not candidates:
             return []
 

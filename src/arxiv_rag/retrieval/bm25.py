@@ -92,7 +92,7 @@ class BM25Index:
     def __len__(self) -> int:
         return len(self.chunks)
 
-    def search(self, query: str, k: int = 5) -> list[SearchHit]:
+    def search(self, query: str, k: int = 5, chunk_filter: object | None = None) -> list[SearchHit]:
         """Return the ``k`` best-scoring chunks, best first.
 
         Steps:
@@ -111,6 +111,9 @@ class BM25Index:
         other way round - every document, then every term - is the same arithmetic over
         874 chunks instead of the few dozen that share a word with the query.
         """
+        from arxiv_rag.retrieval.filters import allowed_indices
+
+        allowed = allowed_indices(self.chunks, chunk_filter)
         scores: dict[int, float] = defaultdict(float)
 
         for term in tokenize(query):
@@ -118,6 +121,8 @@ class BM25Index:
             if idf is None:
                 continue  # the corpus has never seen it: no evidence, not an error
             for doc_id in self.postings[term]:
+                if allowed is not None and doc_id not in allowed:
+                    continue
                 frequency = self.freqs[doc_id][term]
                 length_penalty = 1 - self.b + self.b * self.doc_len[doc_id] / self.avgdl
                 numerator = frequency * (self.k1 + 1)

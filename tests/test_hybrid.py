@@ -29,9 +29,11 @@ class FakeRetriever:
     def __init__(self, order: list[str]) -> None:
         self.order = order
         self.asked_for: list[int] = []
+        self.filters: list = []
 
-    def search(self, query: str, k: int = 5) -> list[SearchHit]:
+    def search(self, query: str, k: int = 5, chunk_filter=None) -> list[SearchHit]:
         self.asked_for.append(k)
+        self.filters.append(chunk_filter)
         return [SearchHit(CHUNKS[name], 1.0) for name in self.order[:k]]
 
 
@@ -123,3 +125,14 @@ def test_dense_and_bm25_are_interchangeable_under_the_protocol():
     hybrid = HybridRetriever([dense, sparse])
     hits = hybrid.search("text of a", k=2)
     assert ids(hits)[0] == "a"
+
+
+def test_the_filter_reaches_every_retriever():
+    """Widening the protocol is only useful if the wrapper actually passes it down."""
+    from arxiv_rag.retrieval.filters import ChunkFilter
+
+    a, b = FakeRetriever(["a", "b"]), FakeRetriever(["b", "c"])
+    f = ChunkFilter(arxiv_ids=frozenset({"1234.5678"}))
+    HybridRetriever([a, b]).search("q", k=2, chunk_filter=f)
+    assert a.filters == [f]
+    assert b.filters == [f]
