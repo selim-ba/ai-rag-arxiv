@@ -71,6 +71,17 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ranks", action="store_true", help="per-question gold rank")
     parser.add_argument(
+        "--rerank",
+        action="store_true",
+        help="add a cross-encoder reranking row (needs: pip install -e '.[rerank]')",
+    )
+    parser.add_argument("--rerank-depth", type=int, default=30, help="candidates to rescore")
+    parser.add_argument(
+        "--rerank-llm",
+        action="store_true",
+        help="add a listwise LLM reranking row (costs money: ~34 calls per run)",
+    )
+    parser.add_argument(
         "--depths",
         type=int,
         nargs="*",
@@ -107,6 +118,37 @@ def main() -> None:
             return [h.chunk.chunk_id for h in _h.search(question, k=n)]
 
         results.append(score(f"hybrid d={depth}", fused, questions, k))
+
+    if args.rerank:
+        from arxiv_rag.retrieval.rerank import CrossEncoderReranker, RerankingRetriever
+
+        reranker = CrossEncoderReranker()
+        base = HybridRetriever([dense_retriever, bm25], depth=args.rerank_depth)
+        reranked = RerankingRetriever(base, reranker, depth=args.rerank_depth)
+
+        # Warm the model before timing. The first call downloads and loads ~90MB, which
+        # would land entirely in question 1 and make p50 meaningless.
+        print(f"loading cross-encoder ({reranker.model_name}) ...")
+        reranked.search("warm up the model", k=1)
+
+        def with_rerank(question: str, n: int) -> list[str]:
+            return [h.chunk.chunk_id for h in reranked.search(question, k=n)]
+
+        results.append(score(f"+xenc d={args.rerank_depth}", with_rerank, questions, k))
+
+    if args.rerank_llm:
+        from arxiv_rag.retrieval.rerank import LLMListwiseReranker, RerankingRetriever
+
+        llm_base = HybridRetriever([dense_retriever, bm25], depth=args.rerank_depth)
+        llm_reranked = RerankingRetriever(
+            llm_base, LLMListwiseReranker(settings), depth=args.rerank_depth
+        )
+
+        def with_llm(question: str, n: int) -> list[str]:
+            return [h.chunk.chunk_id for h in llm_reranked.search(question, k=n)]
+
+        print(f"listwise reranking with {settings.llm_model} ({len(questions)} calls) ...")
+        results.append(score(f"+llm d={args.rerank_depth}", with_llm, questions, k))
 
     print(f"{len(questions)} answerable questions, {len(store)} chunks, k={k}\n")
     print(

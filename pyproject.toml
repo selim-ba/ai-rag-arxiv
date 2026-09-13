@@ -17,6 +17,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Reranking is optional: sentence-transformers pulls in torch, which is large and only
+# needed if you actually rerank. `pip install -e ".[rerank]"` when you want it.
+rerank = [
+    "sentence-transformers>=3.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",

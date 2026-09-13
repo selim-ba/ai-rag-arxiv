@@ -115,6 +115,49 @@ Two named cases carried forward as before/after tests:
 
 ---
 
+## Stage 3 — retrieval techniques, one row at a time
+
+Same 34 answerable questions, same generator, k=5. Retrieval metrics need no LLM, so each
+configuration is measured with `make retrieval-eval` in about a second.
+
+| Configuration | hit@1 | hit@5 | recall@5 | MRR@5 | p95 latency |
+|---|---|---|---|---|---|
+| Dense only (Stage 2 baseline) | 0.324 | 0.618 | 0.520 | 0.457 | 1.2 ms |
+| BM25 only | 0.324 | 0.471 | 0.402 | 0.406 | 2.1 ms |
+| **Dense + BM25, reciprocal rank fusion** | 0.382 | **0.647** | 0.534 | 0.498 | 2.6 ms |
+| + cross-encoder rerank (ms-marco-MiniLM) | 0.324 | 0.588 | 0.490 | 0.450 | 120 ms |
+| **+ listwise LLM rerank (gpt-4o-mini)** | **0.529** | 0.647 | **0.549** | **0.600** | 7784 ms |
+
+**BM25 alone is worse than dense and still belongs in the table.** It wins four questions
+dense misses entirely (q003, q007, q030, q034), which is the whole premise for fusing them:
+the union ceiling of the two is 0.735 against dense's 0.618.
+
+**Fusion bought ordering, not coverage.** hit@1 +0.058 and MRR +0.041, but hit@5 moved by a
+single question — about 25% of the available headroom. RRF promotes chunks *both*
+retrievers found, which pushes single-retriever finds down; the four "BM25 only" questions
+have to survive that crowding.
+
+**The cross-encoder lost on every metric, and the diagnosis matters more than the number.**
+58% of chunks exceed its 512 word-piece context (median chunk: 551), because chunk size was
+chosen in Stage 1 for the generator's context window and no one asked what a reranker
+wanted. But truncation is not the whole story: on q030 the gold chunk fits comfortably at
+373 word-pieces and still scored −0.702 while four wrong-paper chunks scored up to +3.4.
+That chunk is a title + author list + abstract block, and `ms-marco-MiniLM` was trained on
+clean web passages. Across all questions the gold moved **worse on 13, unchanged on 10,
+better on 6**.
+
+**The listwise LLM reranker won on ordering and lost on latency.** Five more questions
+answered from the very top result, MRR up 0.10, and both deliberately planted hard cases
+(q030, q034) landed at rank 1–2. hit@5 did not move at all, because reranking reorders a
+pool and cannot add to it. Cost is about $0.002 per query — but p95 is **7.8 seconds**
+against 2.6 ms, roughly 3000×, on top of ~1.3 s of generation.
+
+**Shipped default: hybrid without reranking.** The listwise reranker is kept behind a flag.
+A 9-second request is the wrong default for a system whose generation step is already the
+slow part, and Stage 4's agent is the right place to spend it — escalating to reranking
+only when the retrieval grader says the passages are weak, rather than on every query.
+---
+
 ## Auditing the gold labels
 
 The labels were written by hand while drafting each question, from chunks chosen by
