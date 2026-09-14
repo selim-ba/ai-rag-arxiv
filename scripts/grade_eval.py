@@ -82,17 +82,29 @@ def main() -> None:
     false_alarm = sum(1 for r in good if not r["relevant"]) / len(good) if good else 0.0
     agree = sum(1 for r in answerable if r["relevant"] == bool(r["gold_retrieved"]))
 
+    # A grader whose calls are all failing returns `relevant=True` every time (it fails
+    # open, deliberately), which reads as a perfectly lenient grader rather than a broken
+    # one. Count the marker so a systemic failure cannot masquerade as a result.
+    failures = [r for r in rows if r["missing"].startswith("grader failed:")]
+    if failures:
+        print(f"!! {len(failures)}/{len(rows)} grader calls FAILED and defaulted to relevant")
+        print(f"   first: {failures[0]['missing'][:120]}")
+        print("   every number below is meaningless until this is fixed.\n")
+
     print("=" * 62)
     print(f"{'':34}{'n':>4}  grader says relevant")
-    print(f"{'gold retrieved (retrieval worked)':34}{len(good):>4}  "
-          f"{sum(r['relevant'] for r in good) / len(good):.3f}   <- want high")
-    print(f"{'gold missed (retrieval failed)':34}{len(bad):>4}  "
-          f"{sum(r['relevant'] for r in bad) / len(bad):.3f}   <- want low")
+    print(
+        f"{'gold retrieved (retrieval worked)':34}{len(good):>4}  "
+        f"{sum(r['relevant'] for r in good) / len(good):.3f}   <- want high"
+    )
+    print(
+        f"{'gold missed (retrieval failed)':34}{len(bad):>4}  "
+        f"{sum(r['relevant'] for r in bad) / len(bad):.3f}   <- want low"
+    )
     if unanswerable:
         rate = sum(r["relevant"] for r in unanswerable) / len(unanswerable)
         print(
-            f"{'unanswerable (no gold exists)':34}{len(unanswerable):>4}  "
-            f"{rate:.3f}   <- want low"
+            f"{'unanswerable (no gold exists)':34}{len(unanswerable):>4}  {rate:.3f}   <- want low"
         )
 
     print(f"\ncatch rate      {catch:.3f}   bad retrieval the grader flags  (drives the retry)")
