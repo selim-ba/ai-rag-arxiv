@@ -30,8 +30,7 @@ from arxiv_rag import __version__
 from arxiv_rag.config import Settings, get_settings
 from arxiv_rag.ingestion.models import Chunk
 from arxiv_rag.retrieval.answer import answer_question
-from arxiv_rag.retrieval.bm25 import BM25Index
-from arxiv_rag.retrieval.hybrid import DenseRetriever, HybridRetriever, Retriever
+from arxiv_rag.retrieval.hybrid import Retriever, build_hybrid
 from arxiv_rag.retrieval.store import ChunkStore
 
 log = logging.getLogger(__name__)
@@ -61,11 +60,13 @@ async def lifespan(app: FastAPI):
     # whose generation step is already over a second. See docs/results.md.
     retriever = None
     if store is not None:
-        retriever = HybridRetriever(
-            [DenseRetriever(store, settings), BM25Index(store.chunks)],
-            depth=settings.fusion_depth,
+        retriever = build_hybrid(store, settings)
+        log.info(
+            "retriever: hybrid dense+bm25, depth %d, rrf_k %d, weights %s",
+            settings.fusion_depth,
+            settings.rrf_k,
+            settings.fusion_weight_list or "equal",
         )
-        log.info("retriever: hybrid dense+bm25, depth %d", settings.fusion_depth)
 
     app.state.store = store
     app.state.retriever = retriever

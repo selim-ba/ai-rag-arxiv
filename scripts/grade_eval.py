@@ -33,8 +33,7 @@ from arxiv_rag.agent.grader import Grader
 from arxiv_rag.config import get_settings
 from arxiv_rag.evaluation.metrics import hit_at_k
 from arxiv_rag.evaluation.timing import summarise
-from arxiv_rag.retrieval.bm25 import BM25Index
-from arxiv_rag.retrieval.hybrid import DenseRetriever, HybridRetriever
+from arxiv_rag.retrieval.hybrid import build_hybrid
 from arxiv_rag.retrieval.store import ChunkStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,10 +42,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main() -> None:
     settings = get_settings()
     store = ChunkStore.load(settings.index_dir)
-    retriever = HybridRetriever(
-        [DenseRetriever(store, settings), BM25Index(store.chunks)],
-        depth=settings.fusion_depth,
-    )
+    retriever = build_hybrid(store, settings)
     grader = Grader(settings)
 
     path = ROOT / "eval" / "questions.jsonl"

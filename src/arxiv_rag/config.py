@@ -46,7 +46,16 @@ class Settings(BaseSettings):
     # rate 0.091. At one retry a false alarm costs one extra retrieval and one extra
     # grader call on a question that was already fine; at five it costs five, and the
     # grader is not accurate enough to be worth paying that for.
-    max_retries: int = Field(default=1, ge=0, le=3)
+    # ZERO, measured. Across two runs the retry loop rescued 1 question and lost 2. The
+    # losses (q002, q034) are the grader's false alarms: it flagged retrievals that already
+    # contained the gold chunk, the rewrite fired, and the second retrieval was worse. Its
+    # false-alarm rate DOUBLED (0.091 -> 0.174) when retrieval improved - more good
+    # retrievals means more chances to wrongly flag one.
+    #
+    # The loop stays wired and tested. Set this above 0 only together with a retry action
+    # that is measured to help; rewriting is not it, because hybrid retrieval already
+    # solved the vocabulary-mismatch failures a rewrite is for.
+    max_retries: int = Field(default=0, ge=0, le=3)
 
     data_dir: Path = Path("data")
 
@@ -63,7 +72,44 @@ class Settings(BaseSettings):
     # reasonable default rather than a tuned one.
     fusion_depth: int = Field(default=20, ge=1, le=200)
 
+    # The constant in RRF's `1/(k + rank)`. 60 comes from Cormack et al., SIGIR 2009,
+    # where it was tuned for fusing dozens of TREC runs of comparable quality: a large k
+    # flattens rank differences so that AGREEMENT between systems carries the signal.
+    # With two retrievers of unequal quality that is the wrong prior - it lets a chunk
+    # both retrievers ranked 8th beat one dense ranked 2nd. Measured in the Stage 4 grid.
+    # Measured: 5. Any value in 0-10 gives identical hit@5 on both splits, and the
+    # ordering of the tiny MRR differences between them INVERTS from dev to test - which
+    # is what noise looks like. 5 is the middle of the agreeing range rather than an edge.
+    # `fusion.DEFAULT_K` stays at 60: that is the literature's value and belongs to the
+    # library. This is what this corpus measured, and belongs to the application.
+    rrf_k: int = Field(default=5, ge=0, le=1000)
+
+    # Per-retriever weights for fusion, as "dense,bm25". Empty means equal weights.
+    # A string rather than a list because this arrives from the environment, and
+    # PT_FUSION_WEIGHTS="1,0.3" is something you can type.
+    # Measured on the dev split: "1,0.3" gains q003, q007 and q034 - three of the four
+    # questions only BM25 finds - and loses NOTHING (+3/-0), landing one question short of
+    # the 0.692 union ceiling. Equal weights score +4/-4: they gain all four and give four
+    # back, which is why hybrid retrieval had been scoring the same as dense alone.
+    #
+    # The mechanism: RRF rewards agreement, so a chunk both retrievers ranked 8th outscores
+    # one dense ranked 2nd. BM25 is the weaker retriever here (hit@5 0.471 vs 0.618) and
+    # was voting at full strength.
+    fusion_weights: str = "1,0.3"
+
     log_level: str = "INFO"
+
+    @property
+    def fusion_weight_list(self) -> list[float] | None:
+        """Parsed weights, or None for equal weighting.
+
+        None and [1.0, 1.0] are the same fusion. None is returned for the empty setting so
+        that "never configured" and "configured to be equal" stay distinguishable in a log
+        line - the kind of distinction that took two debugging sessions to want.
+        """
+        if not self.fusion_weights.strip():
+            return None
+        return [float(part) for part in self.fusion_weights.split(",")]
 
     @property
     def papers_dir(self) -> Path:

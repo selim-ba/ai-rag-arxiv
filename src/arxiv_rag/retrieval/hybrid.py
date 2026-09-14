@@ -106,12 +106,23 @@ class HybridRetriever:
         return fuse_hits(hit_lists, k=self.rrf_k, top_k=k, weights=self.weights)
 
 
-def build_hybrid(store: ChunkStore, settings: Settings, **kwargs) -> HybridRetriever:
-    """Dense + BM25 over the same chunks.
+def build_hybrid(store: ChunkStore, settings: Settings, **overrides) -> HybridRetriever:
+    """Dense + BM25 over the same chunks, configured from ``settings``.
 
     BM25 is built from ``store.chunks``, so both retrievers see exactly the same corpus
     and the comparison is of methods rather than of what got indexed.
+
+    **Every caller goes through here.** The API, three eval scripts and the agent each used
+    to spell out `depth=settings.fusion_depth` themselves; two tuning knobs later that is
+    three places to forget. `overrides` exists for the grid sweep, which is the one caller
+    that legitimately wants to ignore the configured values.
     """
+    kwargs: dict = {
+        "depth": settings.fusion_depth,
+        "rrf_k": settings.rrf_k,
+        "weights": settings.fusion_weight_list,
+    }
+    kwargs.update(overrides)
     return HybridRetriever(
         [DenseRetriever(store, settings), BM25Index(store.chunks)],
         **kwargs,

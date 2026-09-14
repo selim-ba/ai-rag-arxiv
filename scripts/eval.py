@@ -21,8 +21,7 @@ from arxiv_rag.evaluation.judge import RefusalRecord, judge_answer, refusal_scor
 from arxiv_rag.evaluation.metrics import hit_at_k, mean, recall_at_k, reciprocal_rank
 from arxiv_rag.evaluation.timing import summarise
 from arxiv_rag.retrieval.answer import answer_question, format_context
-from arxiv_rag.retrieval.bm25 import BM25Index
-from arxiv_rag.retrieval.hybrid import DenseRetriever, HybridRetriever
+from arxiv_rag.retrieval.hybrid import DenseRetriever, build_hybrid
 from arxiv_rag.retrieval.store import ChunkStore, SearchHit
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,7 +70,7 @@ def main() -> None:
     if args.retriever == "dense":
         retriever = dense
     else:
-        retriever = HybridRetriever([dense, BM25Index(store.chunks)], depth=settings.fusion_depth)
+        retriever = build_hybrid(store, settings)
         if args.retriever == "hybrid+rerank":
             from arxiv_rag.retrieval.rerank import LLMListwiseReranker, RerankingRetriever
 
@@ -105,8 +104,23 @@ def main() -> None:
     mode = "agent" if args.agent else "pipeline"
     print(f"{len(questions)} questions, {mode}, retriever={args.retriever} -> {out_path.name}\n")
 
+    failures: list[tuple[str, str]] = []
     for i, q in enumerate(questions, start=1):
-        answer = answer_for(q["question"])
+        # A run is 40 paid generations. A single dropped connection at question 30 used to
+        # raise out of the loop and throw away the other 29 - the jsonl survived, but no
+        # summary was ever printed and the run had to be paid for again. The grader has
+        # counted its own failures since Stage 4 for exactly this reason; the harness that
+        # spends the most money had no such thing.
+        #
+        # Skipped questions are EXCLUDED from every metric rather than scored as failures.
+        # A network error is not evidence about the retriever, and quietly recording it as
+        # a miss would make an outage look like a regression.
+        try:
+            answer = answer_for(q["question"])
+        except Exception as exc:  # noqa: BLE001 - any transport error, deliberately
+            failures.append((q["id"], f"{type(exc).__name__}: {exc}"))
+            print(f"{i:3}/{len(questions)}  {q['id']}  FAILED  {type(exc).__name__}")
+            continue
         gold = q["gold_chunk_ids"]
         retrieved = answer.retrieved_ids
 
@@ -134,6 +148,10 @@ def main() -> None:
                 "attempts": answer.attempts,
                 "first_retrieved_ids": answer.first_retrieved_ids,
                 "final_query": answer.final_query,
+                # Recorded so the report can tell "the loop was off" from "the grader
+                # approved everything". Those have identical attempt counts and opposite
+                # meanings, and the report guessed wrong the first time it had to say.
+                "max_retries": settings.max_retries,
             }
 
         if gold:
@@ -179,6 +197,17 @@ def main() -> None:
             judged = f"  faithful={str(record['faithful']):5} correct={str(record['correct']):5}"
         hit = record.get("hit@5", "-")
         print(f"{i:3}/{len(questions)}  {q['id']}  {mark}  hit@5={hit}{judged}")
+
+    if failures:
+        # Loud, and above the numbers rather than below them. Quote this next to any
+        # figure from this run: n is smaller than it looks.
+        print(f"\n!! {len(failures)}/{len(questions)} questions FAILED and were skipped")
+        for qid, why in failures[:5]:
+            print(f"   {qid}  {why}")
+        print(
+            f"   every number below is computed over {len(records)} questions, not "
+            f"{len(questions)} - do not compare it with a complete run."
+        )
 
     report(records)
 
@@ -256,8 +285,16 @@ def report(records: list[dict]) -> None:
             print(f"    {r['id']}  {r['question'][:58]}")
             print(f"          -> {r.get('final_query', '')[:80]}")
     elif any("attempts" in r for r in records):
+        cap = next((r["max_retries"] for r in records if "max_retries" in r), None)
         print(f"\nLOOP   (n={len(records)})")
-        print(f"  retried              0/{len(records)} - the grader approved every retrieval")
+        if cap == 0:
+            # The grade node still ran and still formed verdicts; the edge ignored them.
+            print(f"  retried              0/{len(records)} - loop disabled (max_retries=0)")
+        else:
+            print(
+                f"  retried              0/{len(records)} - the grader approved "
+                f"every retrieval (max_retries={cap})"
+            )
 
     print(f"\nREFUSAL   (n={len(records)})")
     for key, value in refusal.items():

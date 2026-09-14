@@ -223,7 +223,10 @@ def test_the_rewrite_node_is_told_what_was_missing(fake_generate, fake_rewrite):
     Without it the rewrite is a blind paraphrase and the second retrieval is a coin flip.
     """
     grader = FakeGrader([False, True], missing="the size of the pretraining dataset")
-    graph = build_graph(FakeRetriever(), Settings(), grader)
+    # max_retries stated explicitly, not inherited. This test needs the loop to fire, and
+    # the shipped default is 0 - a test that depends on a default is a test that breaks
+    # when a measurement changes one.
+    graph = build_graph(FakeRetriever(), Settings(max_retries=1), grader)
     graph.invoke(initial_state("what data is V-JEPA trained on?"))
     question, missing = fake_rewrite["calls"][0]
     assert question == "what data is V-JEPA trained on?"
@@ -383,3 +386,10 @@ def test_the_pipeline_path_reports_no_loop():
     from arxiv_rag.retrieval.answer import Answer
 
     assert Answer(question="q", text="t").attempts == 0
+
+
+def test_the_shipped_default_is_no_retries():
+    """A measured decision, locked down. Across two runs the loop rescued 1 question and
+    lost 2, both losses being grader false alarms on retrievals that already had the gold
+    chunk. Re-enabling it is a deliberate act that should fail this test first."""
+    assert Settings().max_retries == 0
