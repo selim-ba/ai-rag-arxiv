@@ -202,15 +202,26 @@ def answer_question(
     hits = retriever.search(
         question, k=settings.top_k if k is None else k, chunk_filter=chunk_filter
     )
-    retrieved_at = perf_counter()
-    retrieve_ms = (retrieved_at - started) * 1000
+    retrieve_ms = (perf_counter() - started) * 1000
+    answer = generate_answer(question, hits, settings)
+    answer.retrieve_ms = retrieve_ms
+    return answer
+
+
+def generate_answer(question: str, hits: list[SearchHit], settings: Settings) -> Answer:
+    """Turn retrieved passages into a grounded answer. No retrieval of its own.
+
+    Split out of ``answer_question`` so Stage 4's graph can own retrieval and generation as
+    separate nodes while calling exactly this code - the agent has to be measurably the same
+    pipeline before it is allowed to be a different one.
+    """
+    started = perf_counter()
 
     if not hits:
         return Answer(
             question=question,
             text=f"{REFUSAL_TOKEN} nothing was retrieved for this question.",
             refused=True,
-            retrieve_ms=retrieve_ms,
         )
 
     context = format_context(hits)
@@ -222,7 +233,7 @@ def answer_question(
         ],
         temperature=0,
     )
-    generate_ms = (perf_counter() - retrieved_at) * 1000
+    generate_ms = (perf_counter() - started) * 1000
 
     raw = response.choices[0].message.content or ""
     text = resolve_citations(raw, hits)
@@ -232,7 +243,6 @@ def answer_question(
         citations=extract_citations(text),
         refused=is_refusal(text),
         retrieved_ids=[hit.chunk.chunk_id for hit in hits],
-        retrieve_ms=retrieve_ms,
         generate_ms=generate_ms,
     )
 

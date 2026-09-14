@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     # from not being.
     judge_model: str = "gpt-4o-mini"
 
+    # The grader drives control flow, so it is separable from both the generator and the
+    # judge: it runs on every query (cost matters) and a wrong verdict costs a retry.
+    grader_model: str = "gpt-4o-mini"
+
     data_dir: Path = Path("data")
 
     chunk_size: int = Field(default=800, ge=100, le=4000)

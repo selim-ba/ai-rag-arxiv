@@ -56,6 +56,11 @@ def main() -> None:
         choices=["dense", "hybrid", "hybrid+rerank"],
         help="which retriever the generator is fed by (default: the shipped one)",
     )
+    parser.add_argument(
+        "--agent",
+        action="store_true",
+        help="route through the LangGraph agent instead of calling answer_question directly",
+    )
     args = parser.parse_args()
 
     settings = get_settings()
@@ -75,16 +80,33 @@ def main() -> None:
             )
     questions = load_questions(args.split)[: args.limit]
 
+    # One callable either way, so nothing below this line knows which path it is on. At
+    # step 1 of Stage 4 the agent is retrieve -> generate and MUST produce identical
+    # numbers: it calls the same retriever and the same generate_answer. A difference here
+    # is a wiring bug, not a smarter agent.
+    if args.agent:
+        from arxiv_rag.agent.graph import build_graph, run_agent
+
+        graph = build_graph(retriever, settings)
+
+        def answer_for(question: str):
+            return run_agent(graph, question)
+    else:
+
+        def answer_for(question: str):
+            return answer_question(question, retriever, settings)
+
     out_dir = ROOT / "data" / "eval"
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     out_path = out_dir / f"run-{stamp}.jsonl"
 
     records: list[dict] = []
-    print(f"{len(questions)} questions, retriever={args.retriever} -> {out_path.name}\n")
+    mode = "agent" if args.agent else "pipeline"
+    print(f"{len(questions)} questions, {mode}, retriever={args.retriever} -> {out_path.name}\n")
 
     for i, q in enumerate(questions, start=1):
-        answer = answer_question(q["question"], retriever, settings)
+        answer = answer_for(q["question"])
         gold = q["gold_chunk_ids"]
         retrieved = answer.retrieved_ids
 
