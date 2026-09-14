@@ -422,6 +422,109 @@ One detail worth keeping: `preserves_key_terms` did reject a real rewrite (q029,
 `question + missing` fallback then rescued that question. The single success the loop had
 came from the fallback, not the rewrite.
 
+### Validating the judge: correctness holds, faithfulness does not
+
+Deferred since Stage 2 and finally done. Ten answers from the latest run were re-labelled
+against a **blind** worksheet — question, passages, answer, reference, and deliberately not
+the judge's verdict or its reason, which would turn the exercise into checking whether the
+judge's reasoning sounds plausible. It always does. The sample is stratified rather than
+random: faithfulness runs ~0.94, so ten random rows would be nine easy agreements.
+
+**Provenance, stated plainly: the labels are Claude Opus 5's, not a human's**
+(`eval/judge_labels_claude.jsonl`). This measures *judge vs a stronger model*, which is a
+weaker claim than judge-vs-human and shares some blind spots. A human pass would be
+`judge_labels_<name>.jsonl`; `score` compares every labeller it finds.
+
+| axis | agreement | Cohen's kappa |
+|---|---|---|
+| correct | **10/10** | **+1.00** |
+| faithful | 7/10 | **−0.15** |
+
+Raw agreement is the wrong statistic here and kappa is why. Faithfulness is ~94% True, so
+a judge answering True unconditionally would score ~0.94 agreement while contributing
+nothing. Kappa subtracts that floor; negative means *below* what two raters with these base
+rates reach by guessing. At n = 10 this is directional, not conclusive — but every
+disagreement landed on one axis, and each has a named mechanism rather than being a
+coin-flip:
+
+1. **q001 — attributed the passages to the wrong system.** The answer said Ha and
+   Schmidhuber's world model is not described as using reward. The judge objected that
+   "the reward predictor outputs a univariate Gaussian", which is in the *DreamerV2*
+   passage. Right corpus, wrong paper — the same confusion the grader prompt already warns
+   about and the judge prompt does not.
+2. **q005 — graded a claim the answer never made.** The answer refused. The judge's reason
+   was "the passages do not explicitly state that the world model is held fixed while
+   behaviors are learned" — which is the *reference answer's* claim. It imported
+   correctness into a faithfulness check, collapsing the distinction the two axes exist to
+   maintain.
+3. **q031 — stopped at the first supported claim.** The answer reverses I-JEPA's result
+   (`2301.08243::13` says representations degrade when the loss is computed in *pixel*
+   space; the answer says the opposite, then contradicts itself one sentence later). The
+   judge quoted the V-JEPA sentence, which is genuinely supported, and never reached the
+   contradicted one.
+
+#### Three rubrics later, the axis still does not track a careful reader
+
+The correctness axis has ordered tests, mandatory prefixes, an explicit list of
+non-failures and a machine check. Faithfulness had a paragraph of prose. That difference
+looked like the whole explanation, so it was closed in two steps and measured after each.
+
+| rubric | faithfulness | agreement vs the frozen labels | kappa |
+|---|---|---|---|
+| v1 — prose | 0.935 | 7/10 | −0.154 |
+| v2 — four mandatory prefixes | 0.806 | 5/10 | −0.190 |
+| v3 — + quotes verified against answer and passages | 0.688 | 5/10 | −0.190 |
+
+**Each iteration made the output more rigorous and the verdict no better.** v2 reached
+0/31 contract violations while agreement *fell*: the judge learned the format and kept the
+reasoning. Third demonstration in this project that a contract constrains form, not
+thought.
+
+v3 added `failure_is_substantiated`, which requires a failing verdict to quote the
+answer's own words, and a `CONTRADICTED:` verdict to also quote passage words that
+contradict them (`quote_supported` again, its third use). The quotes duly became real, and
+produced this:
+
+```
+q013  CONTRADICTED: "PlaNet does not train an explicit policy network"
+            but passage says "no explicit policy or value function network is used"
+
+q017  CONTRADICTED: "the agent does not learn without it"
+            but passage says "the stochastic component is even more important -
+                              the agent does not learn without it"
+```
+
+Both quotes verified; both pairs **say the same thing**. q017's passage span contains the
+answer span verbatim. The check can confirm that a quote exists and cannot tell agreement
+from contradiction.
+
+**Kept at v3 rather than reverted, and faithfulness is marked as not a metric.** Reverting
+restores 0.935 — a healthy-looking number this measurement says is untrustworthy, and a
+number that looks fine invites being believed. v3 reports 0.688 with failure reasons a
+human can audit in one line, which is the same thing the prefix contract bought the
+correctness axis: not a better verdict, a checkable one.
+
+A fourth fix is visible — reject a `CONTRADICTED:` whose two quotes overlap — and was
+deliberately **not** made. Three rubrics tuned against ten labelled answers is the limit at
+which an improvement can still be distinguished from a coincidence.
+
+**Report faithfulness as: contract-compliant, human-auditable, and not validated.** Use
+correctness (kappa +0.80) for answer-quality claims.
+
+**Consequence for Stage 4.** Step 4 is a verify node — "is every claim in this answer
+supported by the passages?" — which is exactly the axis that just failed validation.
+Building it on this rubric would reproduce all three failures *inside the control flow*,
+where unlike the judge it would act on its verdict. Mechanism 2 is the worst of them there:
+at request time no reference answer exists, so a check that silently reaches for one has no
+defined behaviour in production. The rubric is repaired before the node is built.
+
+**And a separate defect found while reading q005.** The answer ends *"Thus, the answer is
+INSUFFICIENT_CONTEXT."* and was scored as an answered question. `is_refusal` uses
+`startswith`, deliberately — the token mid-paragraph means the model is talking *about*
+refusing while still answering. That reasoning does not hold for a final sentence that is
+itself the refusal, so **`refusal_rate = 0.833` is a lower bound**, on the one metric Stage
+4 is meant to move.
+
 ### What this rules in and out
 
 - **Rewrite-and-retry**: measured at 0 rescues from 5 chances. Kept in the codebase,

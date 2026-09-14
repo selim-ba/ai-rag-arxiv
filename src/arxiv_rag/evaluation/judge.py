@@ -29,11 +29,13 @@ hand — that is what ``reason`` is for.
 """
 
 import logging
+import re
 
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from arxiv_rag.config import Settings
+from arxiv_rag.evaluation.quotes import quote_supported
 
 log = logging.getLogger(__name__)
 
@@ -46,11 +48,60 @@ produced, and a REFERENCE ANSWER written by a human.
 Grade two things that are INDEPENDENT of each other. Do them in this order.
 
 STEP 1 - faithful. Look ONLY at the PASSAGES and the ANSWER. Ignore the REFERENCE \
-ANSWER completely; it is not evidence about faithfulness. For each factual claim in the \
-ANSWER, find the span of a passage that states it. faithful is true only if every claim \
-has such a span. An answer that is true about the world but absent from the passages is \
-NOT faithful. In faithful_reason, quote a few words from the passage that settled it, \
-or name the claim you could not find.
+ANSWER completely; it is not evidence about faithfulness.
+
+Work through this procedure in order. Do not stop early.
+
+1. List every factual claim the ANSWER makes. If it makes none - it declined to answer, \
+or said the passages were insufficient - then faithful is TRUE and faithful_reason is \
+"NO CLAIMS: " plus a few words saying so. An answer that asserts nothing cannot assert \
+something unsupported.
+2. Take EACH claim in turn, including the ones after the first. Find the span of a \
+passage that states it. Most wrong verdicts here come from checking the first claim, \
+finding it supported, and never reading the rest of the answer.
+3. Check which SYSTEM each passage is about before using it as evidence. A passage \
+describing DreamerV2's reward predictor is not evidence about Ha and Schmidhuber's World \
+Models, and a passage about V-JEPA 2 is not evidence about V-JEPA. This corpus contains \
+World Models, PlaNet, Dreamer/V2/V3, TD-MPC/TD-MPC2, IRIS, I-JEPA, V-JEPA/V-JEPA 2, \
+Sub-JEPA, Var-JEPA and LeJEPA. Every passage is retrieved by similarity, so passages \
+about a neighbouring system are always present.
+4. If a passage CONTRADICTS a claim - states the opposite, or reverses the direction of \
+a result - faithful is false. Check this before checking for missing support: a reversed \
+claim is worse than an absent one and is easy to miss because its vocabulary matches.
+5. If a claim has no span anywhere, faithful is false. An answer that is true about the \
+world but absent from the passages is NOT faithful.
+6. Otherwise faithful is true.
+
+**The burden of proof is on the failure, and it is discharged with quotes.** To fail an \
+answer you must produce two things: the words from the ANSWER that make the claim, and \
+either the words from a PASSAGE that contradict them or a statement that no passage \
+contains them. If you cannot quote the answer's own words, you have not found a claim - \
+you have found something the answer failed to say, which is not a faithfulness failure. \
+If you cannot quote the passage words that contradict it, you have not found a \
+contradiction. In both cases faithful is TRUE.
+
+These are not failures and must never appear behind a failure prefix: the answer not \
+mentioning something; the answer being less complete than the reference; a claim the \
+QUESTION raised that the answer never asserted; anything the REFERENCE ANSWER says. If \
+the text you are about to write restates what the answer said and a passage agrees with \
+it, you have found SUPPORT, not a contradiction - write SUPPORTED and set faithful true.
+
+Your faithful_reason must begin with one of exactly four prefixes, matching the verdict:
+- "SUPPORTED: " when faithful is true, followed by the exact words from the passage that \
+settled the last claim you checked.
+- "NO CLAIMS: " when faithful is true because the answer asserted nothing.
+- "CONTRADICTED: " when faithful is false by step 4, formatted exactly as: the ANSWER's \
+claim in quotes, then " but passage says ", then the contradicting passage words in \
+quotes. Both quotes must be copied text, not paraphrase.
+- "UNSUPPORTED: " when faithful is false by step 5, formatted exactly as: the ANSWER's \
+claim in quotes, then " - no passage states this". The quote must be words the answer \
+actually wrote.
+
+These are NOT faithfulness failures, and none of them may appear in faithful_reason: \
+disagreeing with the reference answer; being incomplete; answering about a paper the \
+question did not ask about. The last one is a CORRECTNESS failure - an answer that \
+reports the wrong passages accurately is faithful and incorrect, and separating those two \
+is the entire purpose of having two axes.
 
 STEP 2 - correct. Decide whether the ANSWER answers THE QUESTION. The REFERENCE ANSWER \
 is ground truth for what a right answer contains, but it is deliberately denser than \
@@ -90,9 +141,9 @@ mentions the reference answer, you have graded the wrong thing.
 Reply with JSON only, no prose, with exactly these four keys. The angle brackets below \
 mark where you substitute your own verdict - they are placeholders, NOT default values, \
 and both booleans are genuinely independent:
-{"faithful": <true or false>, "faithful_reason": "<quote from a passage, or the claim \
-you could not find - never a reference to the REFERENCE ANSWER>", "correct": <true or \
-false>, "correct_reason": "<OK: ... | CONTRADICTION: ... | WRONG SYSTEM: ...>"}"""
+{"faithful": <true or false>, "faithful_reason": "<SUPPORTED: ... | NO CLAIMS: ... | \
+CONTRADICTED: ... | UNSUPPORTED: ...>", "correct": <true or false>, "correct_reason": \
+"<OK: ... | CONTRADICTION: ... | WRONG SYSTEM: ...>"}"""
 
 
 class Verdict(BaseModel):
@@ -125,6 +176,14 @@ class RefusalRecord(BaseModel):
 OK_PREFIX = "OK:"
 FAILURE_PREFIXES = ("CONTRADICTION:", "WRONG SYSTEM:")
 
+# The same forcing function, applied to the axis that never had one. Measured: against a
+# blind re-labelling of ten answers, `correct` - which has ordered tests, mandatory
+# prefixes and this check - agreed 10/10 (kappa +1.00), while `faithful` - one paragraph,
+# no contract - agreed 7/10 at kappa -0.15, worse than guessing at its own base rate. The
+# axis with the enforced contract is the one that agrees.
+FAITHFUL_PREFIXES = ("SUPPORTED:", "NO CLAIMS:")
+UNFAITHFUL_PREFIXES = ("CONTRADICTED:", "UNSUPPORTED:")
+
 
 def verdict_is_consistent(verdict: Verdict) -> bool:
     """Did the judge follow its own rules?
@@ -152,17 +211,79 @@ def verdict_is_consistent(verdict: Verdict) -> bool:
         return False
     if not verdict.correct and not reason.startswith(FAILURE_PREFIXES):
         return False
-    if "reference answer" in verdict.faithful_reason.lower():
+
+    faithful_reason = verdict.faithful_reason.strip()
+    if verdict.faithful and not faithful_reason.startswith(FAITHFUL_PREFIXES):
+        return False
+    if not verdict.faithful and not faithful_reason.startswith(UNFAITHFUL_PREFIXES):
+        return False
+    if "reference answer" in faithful_reason.lower():
         return False
     return True
 
 
+_QUOTED = re.compile(
+    r"[\"'\u2018\u2019\u201c\u201d]([^\"'\u2018\u2019\u201c\u201d]{6,})"
+    r"[\"'\u2018\u2019\u201c\u201d]"
+)
+
+
+def quoted_spans(reason: str) -> list[str]:
+    """Every quoted run of six or more characters in a reason. Straight and curly quotes."""
+    return [m.group(1).strip() for m in _QUOTED.finditer(reason)]
+
+
+def failure_is_substantiated(verdict: Verdict, answer: str, context: str) -> bool:
+    """Does a ``faithful=false`` verdict quote text that actually exists?
+
+    The prefix contract made the judge WORSE: agreement with a blind re-labelling fell
+    from 7/10 to 5/10 while contract violations stayed at 0/31. It learned the format and
+    kept the reasoning. Measured examples, all prefix-compliant:
+
+    - q013 wrote ``CONTRADICTED: PlaNet does not train an explicit policy network...``,
+      which restates the ANSWER and which passage 2107.08241::17 states almost verbatim;
+    - q005 wrote ``UNSUPPORTED: The claim that the world model is updated...`` about a
+      refusal that made no claim at all - the claim came from the QUESTION;
+    - q001 quoted the REFERENCE answer as the contradiction.
+
+    All three share one shape: **the failure names a claim the answer never made, or a
+    contradiction no passage states.** That is checkable. A failing verdict must quote the
+    answer's own words, and a CONTRADICTED verdict must also quote the passage words that
+    contradict them; `quote_supported` (Stage 2, written when the gold auditor invented
+    evidence) checks both against the real text.
+
+    **This does not flip the verdict.** The judge's verdict IS the measurement, and
+    silently repairing it would launder a failure into a score - the distinction drawn in
+    ``verify_evidence``, where a grader's verdict is a *claim* driving control flow and
+    flipping it costs only a retry. Here an unsubstantiated failure is counted as a
+    contract violation, retried once, and then kept and reported.
+    """
+    if verdict.faithful:
+        return True
+    spans = quoted_spans(verdict.faithful_reason)
+    if not spans:
+        return False
+    # At least one quote must be the answer's own words: you cannot fail an answer for a
+    # claim it did not make.
+    if not any(quote_supported(span, answer) for span in spans):
+        return False
+    if verdict.faithful_reason.strip().startswith("CONTRADICTED:"):
+        # ...and the contradicting words must be in the passages, not invented or lifted
+        # from the reference answer.
+        return any(quote_supported(span, context) for span in spans)
+    return True
+
+
 RETRY_NUDGE = (
-    "Your previous reply broke the output contract: when correct is false, "
-    "correct_reason must start with CONTRADICTION: or WRONG SYSTEM:; when correct is "
-    "true it must start with OK:; and faithful_reason must argue from the PASSAGES "
-    "only, never from the REFERENCE ANSWER. Re-grade and reply again in the same JSON "
-    "shape."
+    "Your previous reply broke the output contract. correct_reason must start with "
+    "CONTRADICTION: or WRONG SYSTEM: when correct is false, and OK: when it is true. "
+    "faithful_reason must start with CONTRADICTED: or UNSUPPORTED: when faithful is "
+    "false, and SUPPORTED: or NO CLAIMS: when it is true. faithful_reason must argue "
+    "from the PASSAGES only, never from the REFERENCE ANSWER. Re-grade and reply again "
+    "in the same JSON shape. If faithful is false you must QUOTE the answer's own words "
+    "that make the claim, and for CONTRADICTED also quote the passage words that "
+    "contradict them. If you cannot quote both, you have not found a failure and "
+    "faithful is true."
 )
 
 
@@ -225,8 +346,15 @@ def judge_answer(
         {"role": "user", "content": user_message},
     ]
 
+    def acceptable(v: Verdict | None) -> bool:
+        return (
+            v is not None
+            and verdict_is_consistent(v)
+            and failure_is_substantiated(v, answer, context)
+        )
+
     verdict = _grade(messages, settings)
-    if verdict is not None and verdict_is_consistent(verdict):
+    if acceptable(verdict):
         return verdict
 
     # One retry, with the contract restated. Not a loop: a judge that breaks the contract
@@ -248,7 +376,7 @@ def judge_answer(
             correct_reason="judge failed to parse twice",
             inconsistent=True,
         )
-    retried.inconsistent = not verdict_is_consistent(retried)
+    retried.inconsistent = not acceptable(retried)
     return retried
 
 

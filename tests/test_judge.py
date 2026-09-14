@@ -5,6 +5,8 @@ import pytest
 from arxiv_rag.evaluation.judge import (
     RefusalRecord,
     Verdict,
+    failure_is_substantiated,
+    quoted_spans,
     refusal_scores,
     verdict_is_consistent,
 )
@@ -70,9 +72,14 @@ def test_empty_denominators_do_not_divide_by_zero():
 # -- verdict_is_consistent -----------------------------------------------------------
 
 
-def verdict(correct: bool, correct_reason: str, faithful_reason: str = "passage P2 says 'x'"):
+def verdict(
+    correct: bool,
+    correct_reason: str,
+    faithful_reason: str = "SUPPORTED: passage P2 says 'x'",
+    faithful: bool = True,
+):
     return Verdict(
-        faithful=True,
+        faithful=faithful,
         correct=correct,
         faithful_reason=faithful_reason,
         correct_reason=correct_reason,
@@ -118,3 +125,165 @@ def test_faithful_reason_citing_the_reference_is_inconsistent():
 
 def test_prefix_check_ignores_surrounding_whitespace():
     assert verdict_is_consistent(verdict(True, "  OK: fine."))
+
+
+# -- the faithfulness contract -------------------------------------------------------
+#
+# Added after measuring the two axes against a blind re-labelling: `correct`, which had
+# ordered tests and mandatory prefixes, agreed 10/10 (kappa +1.00); `faithful`, which had
+# a paragraph of prose and no contract, agreed 7/10 at kappa -0.15 - below chance for its
+# own base rate. These tests are the same forcing function applied to the second axis.
+
+
+def test_faithful_with_supported_prefix_is_consistent():
+    assert verdict_is_consistent(verdict(True, "OK: fine.", "SUPPORTED: 'no explicit policy'"))
+
+
+def test_faithful_with_no_claims_prefix_is_consistent():
+    """A refusal asserts nothing, so it cannot assert something unsupported.
+
+    Measured (q005): the judge marked a refusal unfaithful, and its reason was the
+    REFERENCE answer's claim - not the answer's. That is the correctness axis leaking into
+    the faithfulness check, and at request time no reference exists for a verify node to
+    reach for.
+    """
+    assert verdict_is_consistent(verdict(True, "OK: fine.", "NO CLAIMS: the answer declined"))
+
+
+def test_unfaithful_with_contradicted_prefix_is_consistent():
+    """Measured (q031): the answer reversed I-JEPA's result - the passage says
+    representations degrade in PIXEL space - and the judge quoted an earlier, genuinely
+    supported sentence and stopped reading."""
+    v = verdict(True, "OK: fine.", "CONTRADICTED: answer says 'representation space'", False)
+    assert verdict_is_consistent(v)
+
+
+def test_unfaithful_with_unsupported_prefix_is_consistent():
+    v = verdict(True, "OK: fine.", "UNSUPPORTED: no passage gives a GPU-hour figure", False)
+    assert verdict_is_consistent(v)
+
+
+def test_faithful_without_a_prefix_is_inconsistent():
+    """The old contract accepted any prose here. That permissiveness is the measured gap."""
+    assert not verdict_is_consistent(verdict(True, "OK: fine.", "passage P2 says 'x'"))
+
+
+def test_unfaithful_with_a_passing_prefix_is_inconsistent():
+    """The mirror image: faithful=false justified by a reason that says it was supported."""
+    v = verdict(True, "OK: fine.", "SUPPORTED: 'no explicit policy'", False)
+    assert not verdict_is_consistent(v)
+
+
+def test_faithful_with_a_failing_prefix_is_inconsistent():
+    assert not verdict_is_consistent(verdict(True, "OK: fine.", "UNSUPPORTED: nothing found"))
+
+
+def test_faithful_prefix_check_ignores_surrounding_whitespace():
+    assert verdict_is_consistent(verdict(True, "OK: fine.", "   SUPPORTED: 'x'"))
+
+
+def test_the_reference_check_still_applies_under_a_valid_prefix():
+    """A correct prefix must not become a way to smuggle the reference in behind it."""
+    v = verdict(True, "OK: fine.", "SUPPORTED: matches the reference answer closely")
+    assert not verdict_is_consistent(v)
+
+
+# -- substantiating a failure ---------------------------------------------------------
+#
+# The prefix contract alone made the judge WORSE: agreement fell 7/10 -> 5/10 while
+# contract violations stayed at 0/31. It learned the format and kept the reasoning, which
+# is this project's standing lesson about contracts constraining output rather than
+# thought. These tests cover the three measured failures, all of them prefix-compliant.
+
+ANSWER = (
+    "No, PlaNet does not train an explicit policy network. Instead, it implements a "
+    "policy through model-predictive control (MPC) planning, using the best sequence of "
+    "future actions derived from its models [2107.08241]."
+)
+PASSAGES = (
+    "[P1] arXiv:2107.08241 | A survey | Section: Methods\n"
+    "In contrast to model-free approaches, no explicit policy or value function network "
+    "is used; the policy is implemented as MPC planning with the best sequence of future "
+    "actions."
+)
+
+
+# An answer that genuinely contradicts the passage, for the one test that needs a real
+# failure to substantiate. Written after the first attempt at that test quoted the PASSAGE
+# twice and called it a contradiction - the same mistake as q013, made by the person
+# writing the guard against q013.
+ANSWER_WRONG = (
+    "Yes. PlaNet trains a policy network with an actor-critic objective and uses it "
+    "directly at action time [2107.08241]."
+)
+
+
+def unfaithful(reason: str) -> Verdict:
+    return Verdict(faithful=False, correct=True, faithful_reason=reason, correct_reason="OK: x")
+
+
+def test_quoted_spans_finds_straight_and_curly_quotes():
+    assert quoted_spans('says "the first thing" and \u201cthe second thing\u201d') == [
+        "the first thing",
+        "the second thing",
+    ]
+
+
+def test_a_faithful_verdict_needs_no_substantiation():
+    v = Verdict(faithful=True, correct=True, faithful_reason="SUPPORTED: 'x'", correct_reason="OK:")
+    assert failure_is_substantiated(v, ANSWER, PASSAGES)
+
+
+def test_a_failure_with_no_quotes_at_all_is_unsubstantiated():
+    """q001's actual output: a failure prefix followed by unquoted prose."""
+    v = unfaithful("CONTRADICTED: The world model does not have access to the reward signal")
+    assert not failure_is_substantiated(v, ANSWER, PASSAGES)
+
+
+def test_a_failure_quoting_words_the_answer_never_wrote_is_unsubstantiated():
+    """q005: the answer refused; the judge took the claim from the QUESTION and failed it."""
+    v = unfaithful("UNSUPPORTED: 'the world model is updated during policy learning'")
+    assert not failure_is_substantiated(v, ANSWER, PASSAGES)
+
+
+def test_a_contradiction_the_passages_do_not_state_is_unsubstantiated():
+    """q013: the 'contradiction' restated the answer, which the passage supports."""
+    v = unfaithful(
+        "CONTRADICTED: 'PlaNet does not train an explicit policy network' but passage says "
+        "'PlaNet learns an actor network by policy gradient'"
+    )
+    assert not failure_is_substantiated(v, ANSWER, PASSAGES)
+
+
+def test_a_real_contradiction_is_substantiated():
+    """One quote from the ANSWER, one from a PASSAGE that says the opposite."""
+    v = unfaithful(
+        "CONTRADICTED: 'PlaNet trains a policy network with an actor-critic objective' "
+        "but passage says 'no explicit policy or value function network is used'"
+    )
+    assert failure_is_substantiated(v, ANSWER_WRONG, PASSAGES)
+
+
+def test_two_quotes_both_from_the_passages_are_unsubstantiated():
+    """The mistake this suite's own author made first time: quoting the passage twice and
+    calling it a contradiction. Neither span is a claim the answer made, so there is
+    nothing being failed - and here both spans in fact SUPPORT the answer."""
+    v = unfaithful(
+        "CONTRADICTED: 'no explicit policy or value function network is used' but passage "
+        "says 'the policy is implemented as MPC planning'"
+    )
+    assert not failure_is_substantiated(v, ANSWER, PASSAGES)
+
+
+def test_unsupported_needs_only_the_answers_own_words():
+    """UNSUPPORTED asserts an absence, so there is no passage span to quote - only the
+    claim being failed, which must be something the answer actually wrote."""
+    v = unfaithful("UNSUPPORTED: 'best sequence of future actions derived from its models'")
+    assert failure_is_substantiated(v, ANSWER, PASSAGES)
+
+
+def test_substantiation_survives_ligatures_and_rewrapping():
+    """`quote_supported` normalises PDF text; a judge quoting 'efficiency' against a
+    passage containing the 'ﬁ' ligature is quoting correctly."""
+    v = unfaithful("UNSUPPORTED: 'model-predictive control (MPC)   planning'")
+    assert failure_is_substantiated(v, ANSWER, PASSAGES)
