@@ -35,13 +35,20 @@ def make_retrieve_node(retriever: Retriever, settings: Settings):
         elapsed_ms = (perf_counter() - started) * 1000
         # A partial dict, not the whole state. `trace` has an `operator.add` reducer, so
         # this single-element list is APPENDED to whatever is already there.
-        return {
+        update = {
             "hits": hits,
             # Overwrite rather than accumulate: on a retry this is the latest retrieval's
             # cost, not the sum. Total agent time is measured by the caller.
             "retrieve_ms": elapsed_ms,
             "trace": [f"retrieve({query[:40]!r}) -> {len(hits)} hits in {elapsed_ms:.1f}ms"],
         }
+        # Snapshot the first lap, once. On later laps the key is simply absent from the
+        # returned dict, and LangGraph leaves the existing value alone - which is why this
+        # needs no guard beyond the counter. `attempts` is still 0 here on lap one: the
+        # rewrite node is what increments it, and it has not run yet.
+        if state.get("attempts", 0) == 0:
+            update["first_hits"] = hits
+        return update
 
     return retrieve
 

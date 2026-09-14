@@ -120,4 +120,10 @@ def run_agent(
     # The retrieve node measured this; carry it onto the Answer so the pipeline and the
     # agent report the same fields to the same harness.
     answer.retrieve_ms = final.get("retrieve_ms", 0.0)
+    # What the loop actually did. Carried on the Answer because that is the only thing
+    # `scripts/eval.py` sees, and a metric the harness cannot see does not exist.
+    answer.attempts = final.get("attempts", 0)
+    if answer.attempts:
+        answer.first_retrieved_ids = [h.chunk.chunk_id for h in final.get("first_hits", [])]
+        answer.final_query = final.get("query", "")
     return answer

@@ -1,5 +1,9 @@
 PYTHON ?= python3
 
+# Extra flags for the eval targets, e.g. `make eval ARGS="--agent --limit 5"`.
+# `make` swallows anything starting with `--`, so flags have to arrive as a variable.
+ARGS ?=
+
 .PHONY: install dev test lint fmt ingest index check-eval eval retrieval-eval grade-eval gold-audit gold-apply clean
 
 install:
@@ -34,13 +38,13 @@ check-eval:
 	.venv/bin/python -m scripts.check_eval --ranks
 
 eval:
-	.venv/bin/python -m scripts.eval
+	.venv/bin/python -m scripts.eval $(ARGS)
 
 retrieval-eval:
-	.venv/bin/python -m scripts.retrieval_eval
+	.venv/bin/python -m scripts.retrieval_eval $(ARGS)
 
 grade-eval:
-	.venv/bin/python -m scripts.grade_eval
+	.venv/bin/python -m scripts.grade_eval $(ARGS)
 
 gold-audit:
 	.venv/bin/python -m scripts.gold_audit propose

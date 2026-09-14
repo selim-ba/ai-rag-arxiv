@@ -82,6 +82,21 @@ class Answer(BaseModel):
     retrieve_ms: float = Field(default=0.0, description="whatever the retriever did")
     generate_ms: float = Field(default=0.0, description="the LLM call")
 
+    # -- what the agent loop did. Both stay at their defaults on the pipeline path, which
+    # is honest: the pipeline has no retries, so `attempts=0` is the true value and an
+    # empty `first_retrieved_ids` correctly says "there was no first attempt distinct from
+    # this one". Without these, a run cannot tell a loop that never fired from a loop that
+    # fired and achieved nothing - the two produce byte-identical metrics.
+    attempts: int = Field(default=0, description="query rewrites performed; 0 on the pipeline")
+    first_retrieved_ids: list[str] = Field(
+        default_factory=list,
+        description="what the FIRST retrieval returned; empty when there was only one",
+    )
+    # The last query actually searched. Differs from `question` only after a rewrite, and
+    # it is the one field here meant to be read by a human: aggregate metrics cannot tell
+    # you a rewrite is fluent nonsense, and eight of these read side by side can.
+    final_query: str = Field(default="", description="the query the last retrieval used")
+
 
 # -- pure functions ------------------------------------------------------------------
 

@@ -46,6 +46,11 @@ class AgentState(TypedDict, total=False):
     hits: list[SearchHit]
     answer: Answer | None
 
+    # The FIRST retrieval's hits, written once and never overwritten. Kept because
+    # "did the retry help?" is unanswerable from the final state alone: a rescue and a
+    # retry that changed nothing look identical once `hits` has been replaced.
+    first_hits: list[SearchHit]
+
     # The grader's verdict on the CURRENT hits. Overwritten on every pass, deliberately:
     # the edge condition wants the latest one, and a stale verdict from the previous
     # retrieval would route on evidence that no longer describes what is in `hits`.
@@ -75,6 +80,7 @@ def initial_state(question: str, chunk_filter: ChunkFilter | None = None) -> Age
         query=question,
         chunk_filter=chunk_filter,
         hits=[],
+        first_hits=[],
         answer=None,
         grade=None,
         attempts=0,

@@ -125,6 +125,17 @@ def main() -> None:
             "generate_ms": round(answer.generate_ms, 1),
         }
 
+        # Only on the agent path. `report` reads the run's shape off the records rather
+        # than being told it: a pipeline record has no `attempts` key at all, which is
+        # different from having one that reads 0. The pipeline cannot retry, so "it
+        # retried zero times" is a category error, not a measurement.
+        if args.agent:
+            record |= {
+                "attempts": answer.attempts,
+                "first_retrieved_ids": answer.first_retrieved_ids,
+                "final_query": answer.final_query,
+            }
+
         if gold:
             record |= {
                 "gold_groups_satisfied": sum(1 for group in gold if set(retrieved) & set(group)),
@@ -134,6 +145,11 @@ def main() -> None:
                 "recall@5": recall_at_k(retrieved, gold, 5),
                 "rr": reciprocal_rank(retrieved, gold),
             }
+            # The only thing that answers "did the retry earn anything?". Comparing the
+            # FIRST retrieval against the final one, per question, because the aggregate
+            # cannot: a rescue and a loss cancel out and hit@5 does not move.
+            if answer.attempts:
+                record["hit@5_first"] = hit_at_k(answer.first_retrieved_ids, gold, 5)
 
         # Judging a refusal for correctness is meaningless: whether it *should* have
         # refused is already measured, exactly, by refusal_scores.
@@ -206,6 +222,42 @@ def report(records: list[dict]) -> None:
         if values:
             t = summarise(values)
             print(f"  {label:20} p50 {t['p50']:8.1f}  p95 {t['p95']:8.1f}  max {t['max']:8.1f}")
+
+    retried = [r for r in records if r.get("attempts", 0)]
+    if retried:
+        # Three outcomes, not one. A loop is only earning its latency if rescued > lost,
+        # and an aggregate hit@5 that did not move is equally consistent with "nothing
+        # happened" and "three rescues cancelled three losses".
+        with_gold = [r for r in retried if "hit@5_first" in r]
+        rescued = [r for r in with_gold if r["hit@5"] and not r["hit@5_first"]]
+        lost = [r for r in with_gold if r["hit@5_first"] and not r["hit@5"]]
+        unchanged = len(with_gold) - len(rescued) - len(lost)
+        # A retry that returns the same ids is pure waste - a rewrite call, an embedding
+        # call and a second retrieval for a list you already had. Distinct from a retry
+        # that found different passages and still missed: that one says the rewrite works
+        # and retrieval has a ceiling, which is a different problem with a different fix.
+        # Compare as SETS, not lists. Measured: q013's retry returned the same five chunks
+        # in a different order, which an `==` on lists calls a change and which is, for
+        # every metric in this file and for the generator, not one.
+        inert = [r for r in retried if set(r["first_retrieved_ids"]) == set(r["retrieved_ids"])]
+        print(f"\nLOOP   (n={len(records)})")
+        rate = len(retried) / len(records)
+        print(
+            f"  retried              {len(retried)}/{len(records)} ({rate:.3f})  "
+            f"{[r['id'] for r in retried]}"
+        )
+        print(f"  no-gold to compare   {len(retried) - len(with_gold)}")
+        print(f"  rescued              {len(rescued)}  {[r['id'] for r in rescued]}")
+        print(f"  lost                 {len(lost)}  {[r['id'] for r in lost]}")
+        print(f"  no change            {unchanged}")
+        print(f"  same chunks back     {len(inert)}  {[r['id'] for r in inert]}")
+        print("\n  rewrites - read these by hand:")
+        for r in retried:
+            print(f"    {r['id']}  {r['question'][:58]}")
+            print(f"          -> {r.get('final_query', '')[:80]}")
+    elif any("attempts" in r for r in records):
+        print(f"\nLOOP   (n={len(records)})")
+        print(f"  retried              0/{len(records)} - the grader approved every retrieval")
 
     print(f"\nREFUSAL   (n={len(records)})")
     for key, value in refusal.items():

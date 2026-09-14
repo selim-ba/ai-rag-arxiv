@@ -325,3 +325,61 @@ def test_decide_survives_a_missing_grade():
     decide = make_decide_after_grade(Settings(max_retries=1))
     state = initial_state("a question")
     assert decide(state) in {"generate", "rewrite"}
+
+
+# -- instrumentation: the loop has to be visible from outside the graph -----------------
+
+
+class ShiftingRetriever(FakeRetriever):
+    """Returns different chunks on each call, so a retry is detectable in the ids."""
+
+    def search(self, query, k=5, chunk_filter=None):
+        self.queries.append(query)
+        offset = len(self.queries) - 1
+        rotated = CHUNKS[offset:] + CHUNKS[:offset]
+        return [SearchHit(c, 1.0) for c in rotated[:k]]
+
+
+def test_the_answer_reports_how_many_retries_happened(fake_generate, fake_rewrite):
+    """Without this the harness cannot tell a loop that never fired from a loop that fired
+    and achieved nothing - the two produce byte-identical metrics."""
+    answer = run_agent(
+        build_graph(FakeRetriever(), Settings(max_retries=1), FakeGrader([False])), "a question"
+    )
+    assert answer.attempts == 1
+
+
+def test_no_retry_reports_zero_attempts(fake_generate, fake_rewrite):
+    answer = run_agent(build_graph(FakeRetriever(), Settings(), FakeGrader([True])), "a question")
+    assert answer.attempts == 0
+    assert answer.first_retrieved_ids == []
+
+
+def test_the_first_retrieval_is_kept_for_comparison(fake_generate, fake_rewrite):
+    """`hits` is overwritten by the retry, so the before-picture has to be saved."""
+    retriever = ShiftingRetriever()
+    answer = run_agent(
+        build_graph(retriever, Settings(max_retries=1), FakeGrader([False])), "a question"
+    )
+    assert len(retriever.queries) == 2
+    assert answer.first_retrieved_ids == [c.chunk_id for c in CHUNKS]
+    assert answer.retrieved_ids != answer.first_retrieved_ids
+
+
+def test_the_snapshot_is_not_overwritten_by_later_laps(fake_generate, fake_rewrite):
+    """Two retries, and the snapshot still shows lap one. The retrieve node returns the
+    key only when `attempts` is 0; on later laps it is absent and LangGraph keeps the
+    existing value."""
+    retriever = ShiftingRetriever()
+    answer = run_agent(
+        build_graph(retriever, Settings(max_retries=2), FakeGrader([False])), "a question"
+    )
+    assert len(retriever.queries) == 3
+    assert answer.first_retrieved_ids == [c.chunk_id for c in CHUNKS]
+
+
+def test_the_pipeline_path_reports_no_loop():
+    """`attempts=0` on the pipeline is the true value, not a missing one."""
+    from arxiv_rag.retrieval.answer import Answer
+
+    assert Answer(question="q", text="t").attempts == 0
