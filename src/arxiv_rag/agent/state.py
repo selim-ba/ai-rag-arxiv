@@ -24,6 +24,7 @@ condition will spend money all night.
 import operator
 from typing import Annotated, TypedDict
 
+from arxiv_rag.agent.grader import Grade
 from arxiv_rag.retrieval.answer import Answer
 from arxiv_rag.retrieval.filters import ChunkFilter
 from arxiv_rag.retrieval.store import SearchHit
@@ -44,6 +45,11 @@ class AgentState(TypedDict, total=False):
     query: str  # what retrieval actually searched for; diverges from `question` on rewrite
     hits: list[SearchHit]
     answer: Answer | None
+
+    # The grader's verdict on the CURRENT hits. Overwritten on every pass, deliberately:
+    # the edge condition wants the latest one, and a stale verdict from the previous
+    # retrieval would route on evidence that no longer describes what is in `hits`.
+    grade: Grade | None
 
     # Retrieval timing, measured by the node that does the retrieving. The pipeline
     # gets this from `answer_question`; the agent calls `generate_answer` directly, so
@@ -70,6 +76,7 @@ def initial_state(question: str, chunk_filter: ChunkFilter | None = None) -> Age
         chunk_filter=chunk_filter,
         hits=[],
         answer=None,
+        grade=None,
         attempts=0,
         retrieve_ms=0.0,
         trace=[],

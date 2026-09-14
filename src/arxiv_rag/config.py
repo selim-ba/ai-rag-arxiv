@@ -38,6 +38,16 @@ class Settings(BaseSettings):
     # judge: it runs on every query (cost matters) and a wrong verdict costs a retry.
     grader_model: str = "gpt-4o-mini"
 
+    # How many times the agent may rewrite the query and retrieve again before it gives
+    # up and answers with whatever it has. The loop's hard cap, and the reason the agent
+    # terminates even when the grader never changes its mind.
+    #
+    # Measured grader quality argues for a small number: catch rate 0.417, false-alarm
+    # rate 0.091. At one retry a false alarm costs one extra retrieval and one extra
+    # grader call on a question that was already fine; at five it costs five, and the
+    # grader is not accurate enough to be worth paying that for.
+    max_retries: int = Field(default=1, ge=0, le=3)
+
     data_dir: Path = Path("data")
 
     chunk_size: int = Field(default=800, ge=100, le=4000)

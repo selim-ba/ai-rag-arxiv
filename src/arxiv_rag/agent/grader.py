@@ -15,7 +15,6 @@ was grading one axis twice; a grader that drives a loop deserves the same suspic
 to name what is missing rather than gesture at it.
 """
 
-import json
 import logging
 
 from openai import OpenAI
@@ -162,6 +161,3 @@ class Grader:
 
 def _client(settings: Settings) -> OpenAI:
     return OpenAI(api_key=settings.openai_api_key)
-
-
-_ = json  # used once you implement the TODO

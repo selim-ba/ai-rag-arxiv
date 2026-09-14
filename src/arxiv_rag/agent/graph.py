@@ -10,7 +10,13 @@ import logging
 
 from langgraph.graph import END, START, StateGraph
 
-from arxiv_rag.agent.nodes import make_generate_node, make_retrieve_node
+from arxiv_rag.agent.grader import Grader
+from arxiv_rag.agent.nodes import (
+    make_generate_node,
+    make_grade_node,
+    make_retrieve_node,
+    make_rewrite_node,
+)
 from arxiv_rag.agent.state import AgentState, initial_state
 from arxiv_rag.config import Settings
 from arxiv_rag.retrieval.answer import Answer
@@ -20,9 +26,54 @@ from arxiv_rag.retrieval.hybrid import Retriever
 log = logging.getLogger(__name__)
 
 
-def build_graph(retriever: Retriever, settings: Settings):
+def make_decide_after_grade(settings: Settings):
+    """Build the conditional-edge function: after grading, rewrite or generate?
+
+
+    Return ``"generate"`` when:
+
+    * the grade says ``relevant`` - retrieval succeeded, there is nothing to retry; **or**
+    * ``state["attempts"] >= settings.max_retries`` - the budget is spent.
+
+    Otherwise return ``"rewrite"``.
+
+    """
+
+    def decide(state: AgentState) -> str:
+        # The cap is read FIRST, deliberately. Written the other way round the function
+        # still behaves identically - but the order on the page is the order of authority,
+        # and the thing with authority here is the counter, not the model.
+        attempts = state.get("attempts", 0)
+        if attempts >= settings.max_retries:
+            return "generate"
+
+        grade = state.get("grade")
+        # A missing verdict routes to `generate`: absent evidence of failure is not
+        # evidence of failure, and this is the branch that costs nothing.
+        if grade is None or grade.relevant:
+            return "generate"
+
+        return "rewrite"
+
+    return decide
+
+
+def build_graph(retriever: Retriever, settings: Settings, grader: Grader | None = None):
     """Wire the nodes into a compiled graph.
 
+    The shape as of Stage 4 step 3::
+
+        START -> retrieve -> grade -+-- relevant, or out of retries --> generate -> END
+                    ^               |
+                    |               +-- not relevant -----------------> rewrite
+                    +-------------------------------------------------------+
+
+    That back-edge is the whole reason this is a graph. ``retrieve -> grade -> rewrite ->
+    retrieve`` is a cycle, and a cycle is what a chain cannot express: LCEL, a hand-written
+    pipeline and a list of steps all assume the work flows one way.
+
+    ``grader`` is injected and defaults to a real one, so tests can substitute a verdict
+    without a network call.
 
     Nothing is passed to ``compile()`` yet. A ``checkpointer`` is what gives persistence
     across invocations - conversation memory, resume-after-crash, human-in-the-loop pauses -
@@ -30,10 +81,21 @@ def build_graph(retriever: Retriever, settings: Settings):
     """
     graph = StateGraph(AgentState)
     graph.add_node("retrieve", make_retrieve_node(retriever, settings))
+    graph.add_node("grade", make_grade_node(grader if grader is not None else Grader(settings)))
+    graph.add_node("rewrite", make_rewrite_node(settings))
     graph.add_node("generate", make_generate_node(settings))
 
     graph.add_edge(START, "retrieve")
-    graph.add_edge("retrieve", "generate")
+    graph.add_edge("retrieve", "grade")
+    # The conditional edge. The third argument maps the function's return value to a node
+    # name; returning a string that is not a key here is a runtime error, not a silent
+    # fallthrough, which is the behaviour you want from a router.
+    graph.add_conditional_edges(
+        "grade",
+        make_decide_after_grade(settings),
+        {"rewrite": "rewrite", "generate": "generate"},
+    )
+    graph.add_edge("rewrite", "retrieve")  # the back-edge
     graph.add_edge("generate", END)
     return graph.compile()
 
