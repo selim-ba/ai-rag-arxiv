@@ -814,11 +814,11 @@ referent named, and was a self-contained question left alone.
 
 | prompt | accuracy | **over-resolved** | under-resolved |
 |---|---|---|---|
-| **as shipped** | **9/13** | **0** | 4 |
+| **as shipped** | **10/13** | **0** | 3 |
 | + an explicit three-test decision procedure | 7/13 | **2** | 4 |
 | reverted | 9/13 | 0 | 4 |
 
-Per kind: pronoun 2/4, ellipsis 2/2, answer-reference 1/3, **self-contained 4/4**.
+Per kind: pronoun 2/4, ellipsis 2/2, answer-reference 2/3, **self-contained 4/4**.
 
 **The two failure directions are not symmetric, and the spec is built around that.** An
 under-resolved question retrieves badly and the failure is visible in the answer. An
@@ -843,9 +843,13 @@ Required" rather than the reference answer's Sub-JEPA and Var-JEPA, because that
 is q033, a known retrieval miss. The resolver's output was correct for the conversation it
 saw. The case measures retrieval wearing a resolution label.
 
-Residuals, all under-resolution and all visible: u04 (subject absent rather than
-pronominal), u09 (resolved "they" to "the parameters" - vaguer than the pronoun), u10
-(invalid, above).
+u10 was replaced with a turn-1 that retrieves reliably (eval q010, whose answer lists
+three components in a fixed order) and now passes - same prompt, same resolver, valid
+input. The diagnosis held.
+
+Residuals, both under-resolution and both visible: u04 (subject absent rather than
+pronominal) and u09 (resolved "they" to "the parameters", vaguer than the pronoun it
+replaced - a rewrite can fail by losing specificity, not only by not happening).
 
 ### What this rules in and out
 
