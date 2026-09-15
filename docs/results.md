@@ -745,12 +745,59 @@ explicit constraint correctly and buys no measurable quality. The router's value
 `catalog` - questions no passage can answer - and the measured discipline of
 `verify_route`.
 
-**What the ceiling actually argues for is a retrieval change, not an agent change.** The
-gain is available to a system that *discovers* the two or three relevant papers from the
-question and then retrieves within them - hierarchical or two-stage retrieval, where a
-coarse pass over papers precedes a fine pass over chunks. That is a Stage 5+ retrieval
-component, and it is now the highest-value item on the list by a wide margin: +0.148 hit@5
-against a system whose answer correctness is bounded by retrieval.
+**The obvious way to reach it is two-stage retrieval** - a coarse pass that discovers the
+two or three relevant papers, then a fine pass within them. Both mechanisms for that coarse
+pass were measured before either was built. Both fail.
+
+#### Two-stage retrieval: measured, and closed
+
+*Coarse pass A - aggregate chunk scores by paper.* Retrieve 100 chunks, group by paper,
+keep the top N. No new index; the fine pass is the same `ChunkFilter` the oracle used.
+
+| aggregate | N=1 | N=2 | **N=3** | N=5 | N=10 |
+|---|---|---|---|---|---|
+| max | 0.294 | 0.500 | 0.676 | 0.765 | 0.882 |
+| sum | 0.441 | 0.559 | 0.706 | 0.765 | 0.882 |
+| mean | 0.294 | 0.500 | 0.559 | 0.647 | 0.824 |
+| count | 0.441 | 0.676 | **0.735** | 0.824 | 0.912 |
+
+Paper recall@3 is 0.735 against a pre-set threshold of 0.90. Worse, the per-question
+picture is decisive: **all five questions the oracle rescues are stranded by the coarse
+pass**, and three that currently work (q012, q020, q021) would be destroyed. Rescued 0,
+lost 3.
+
+The diagnosis is *derivation*. A coarse pass built from chunk scores inherits the chunk
+retrieval's blindness: on exactly the questions where the gold chunk ranks poorly, the gold
+paper collects one weak deep vote (q037's sits at fused rank 53 of 100) while papers with
+three strong chunks in the top 20 win the aggregation. **Hierarchical retrieval over
+aggregated leaf scores helps only when the leaf retrieval is already nearly right - that
+is, when it is least needed.**
+
+*Coarse pass B - an independent signal.* One embedding per paper from its title and opening
+text, matched against the question directly. It cannot inherit the chunk ranking.
+
+| | N=1 | N=2 | **N=3** | N=5 | N=10 |
+|---|---|---|---|---|---|
+| paper embedding | 0.382 | 0.471 | **0.529** | 0.588 | 0.706 |
+
+Worse than aggregation, and the five that matter need N between 12 and 39 - out of 49
+papers. Keeping 39 of 49 is not narrowing.
+
+**The reason is a property of the corpus, not of the technique.** These 49 papers are
+curated around one subject; at abstract level they are nearly indistinguishable, since
+every one of them is about world models, latents, prediction and representation. Document
+level embeddings have almost no discriminative power here. *Two-stage retrieval needs
+documents that differ from each other, and a corpus curated around a single topic has that
+difference only in its chunks - which is where the retrieval already looks.*
+
+**So the ceiling is an upper bound, not available headroom.** The oracle reaches 0.824 by
+using gold labels - information about where the answer is. What it demonstrates is that
+ranking *within* the right paper is good; the hard part is identifying the paper, and that
+needs precisely the discrimination the chunk retrieval already lacks. Revisit only for a
+heterogeneous corpus, where papers differ at document level.
+
+Total cost of reaching this conclusion: two harness flags, one pure module, 14 tests, and
+about a tenth of a cent. No retriever was written.
 
 ### What this rules in and out
 

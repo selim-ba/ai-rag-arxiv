@@ -19,8 +19,9 @@ from arxiv_rag.config import get_settings
 from arxiv_rag.evaluation.metrics import flatten, hit_at_k, mean, recall_at_k, reciprocal_rank
 from arxiv_rag.evaluation.timing import summarise
 from arxiv_rag.retrieval.bm25 import BM25Index
-from arxiv_rag.retrieval.embeddings import embed_query
+from arxiv_rag.retrieval.embeddings import embed_query, embed_texts
 from arxiv_rag.retrieval.filters import ChunkFilter
+from arxiv_rag.retrieval.hierarchical import top_papers
 from arxiv_rag.retrieval.hybrid import DenseRetriever, HybridRetriever
 from arxiv_rag.retrieval.store import ChunkStore
 
@@ -81,6 +82,24 @@ def score(name: str, retrieve, questions: list[dict], k: int) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ranks", action="store_true", help="per-question gold rank")
+    parser.add_argument(
+        "--paper-recall",
+        action="store_true",
+        help="phase 0 of two-stage retrieval: how often the gold paper survives a coarse "
+        "pass that keeps the top N papers. Free; bounds what two-stage could ever reach",
+    )
+    parser.add_argument(
+        "--coarse-depth",
+        type=int,
+        default=100,
+        help="how many chunks the coarse pass looks at before grouping them by paper",
+    )
+    parser.add_argument(
+        "--paper-embed",
+        action="store_true",
+        help="phase 0b: a coarse pass with an INDEPENDENT signal - embed each paper's "
+        "title and opening text as one document and retrieve papers directly",
+    )
     parser.add_argument(
         "--filter-ceiling",
         action="store_true",
@@ -293,6 +312,109 @@ def main() -> None:
         print(f"  lost to filtering      {len(lost)}  {lost}")
         multi = [r["id"] for r in rows if r["papers"] > 1]
         print(f"  questions whose gold spans >1 paper   {len(multi)}  {multi}")
+
+    if args.paper_recall:
+        # THE decision number for two-stage retrieval. The oracle ceiling says perfect
+        # paper filtering is worth +0.148 hit@5; this says how much of that a real coarse
+        # pass can reach, because a gold chunk whose paper misses the top N is unreachable
+        # no matter how good the fine pass is. `1 - recall@N` is the floor on questions
+        # two-stage would LOSE - the failure the oracle could not have by construction.
+        coarse = HybridRetriever(
+            [dense_retriever, bm25],
+            depth=settings.fusion_depth,
+            rrf_k=settings.rrf_k,
+            weights=settings.fusion_weight_list,
+        )
+        deep = {q["id"]: coarse.search(q["question"], k=args.coarse_depth) for q in questions}
+        gold_papers = {
+            q["id"]: {cid.split("::")[0] for cid in flatten(q["gold_chunk_ids"])} for q in questions
+        }
+        # A question needing chunks from three papers is only served if ALL three survive.
+        needed = {qid: len(papers) for qid, papers in gold_papers.items()}
+
+        one = sum(1 for v in needed.values() if v == 1)
+        many = sum(1 for v in needed.values() if v > 1)
+        print(f"\nPAPER RECALL   (coarse pass over {args.coarse_depth} chunks, n={len(questions)})")
+        print(f"  gold spans 1 paper: {one}, >1 paper: {many}")
+        print(f"\n{'aggregate':10} " + " ".join(f"{'N=' + str(n):>8}" for n in (1, 2, 3, 5, 10)))
+        for aggregate in ("max", "sum", "mean", "count"):
+            cells = []
+            for n in (1, 2, 3, 5, 10):
+                ok = sum(
+                    1
+                    for q in questions
+                    if gold_papers[q["id"]] <= set(top_papers(deep[q["id"]], n, aggregate))
+                )
+                cells.append(f"{ok / len(questions):>8.3f}")
+            print(f"{aggregate:10} " + " ".join(cells))
+
+        # Which questions the coarse pass would strand, at the shape most likely to ship.
+        stranded = [
+            q["id"]
+            for q in questions
+            if not gold_papers[q["id"]] <= set(top_papers(deep[q["id"]], 3, "max"))
+        ]
+        print(f"\n  stranded at N=3, max   {len(stranded)}  {stranded}")
+        print(
+            "  a stranded question cannot be rescued by any fine pass - this is the "
+            "floor on what two-stage would lose"
+        )
+
+    if args.paper_embed:
+        # Phase 0 showed the aggregated coarse pass captures NONE of the oracle's gain: all
+        # five questions it rescues are stranded, and three working ones would break. The
+        # diagnosis was derivation - a coarse pass built from chunk scores inherits the
+        # chunk retrieval's blindness, and fails on exactly the questions that need it.
+        #
+        # This is the same idea with an INDEPENDENT signal: one embedding per paper, built
+        # from its title and opening text, matched against the question directly. It can
+        # surface a paper whose individual chunks all rank poorly - which is the case that
+        # matters.
+        import numpy as np
+
+        docs, ids = [], []
+        for arxiv_id in sorted({c.arxiv_id for c in store.chunks}):
+            chunks = sorted(
+                (c for c in store.chunks if c.arxiv_id == arxiv_id), key=lambda c: c.index
+            )
+            # Title plus the opening ~2 chunks: abstract and introduction, which is where a
+            # paper says what it is for. Whole papers would dilute to nothing.
+            body = " ".join(" ".join(c.text.split()) for c in chunks[:2])[:4000]
+            docs.append(f"{chunks[0].title}. {body}")
+            ids.append(arxiv_id)
+
+        print(f"\nPAPER EMBEDDINGS   (1 vector per paper, {len(ids)} papers)")
+        matrix = np.array(embed_texts(docs, settings), dtype=np.float32)
+        matrix /= np.linalg.norm(matrix, axis=1, keepdims=True)
+
+        gold_papers = {
+            q["id"]: {cid.split("::")[0] for cid in flatten(q["gold_chunk_ids"])} for q in questions
+        }
+        ranked = {}
+        for q in questions:
+            vector = np.array(embed_query(q["question"], settings), dtype=np.float32)
+            vector /= np.linalg.norm(vector)
+            order = np.argsort(-(matrix @ vector))
+            ranked[q["id"]] = [ids[i] for i in order]
+
+        print(f"\n{'':10} " + " ".join(f"{'N=' + str(n):>8}" for n in (1, 2, 3, 5, 10)))
+        cells = []
+        for n in (1, 2, 3, 5, 10):
+            ok = sum(1 for q in questions if gold_papers[q["id"]] <= set(ranked[q["id"]][:n]))
+            cells.append(f"{ok / len(questions):>8.3f}")
+        print(f"{'abstract':10} " + " ".join(cells))
+
+        # The only questions that matter: the five the oracle filter rescues. A coarse pass
+        # that misses these captures none of the +0.148 hit@5, whatever its average says.
+        rescued = ["q026", "q028", "q029", "q033", "q037"]
+        print("\n  the five the oracle rescues - rank of each gold paper:")
+        for qid in rescued:
+            if qid not in ranked:
+                continue
+            positions = {p: ranked[qid].index(p) + 1 for p in sorted(gold_papers[qid])}
+            worst = max(positions.values())
+            verdict = "REACHED at N=3" if worst <= 3 else f"needs N>={worst}"
+            print(f"    {qid}  {positions}  -> {verdict}")
 
     if grid_rows:
         depth = args.grid_depth if args.grid_depth is not None else settings.fusion_depth
