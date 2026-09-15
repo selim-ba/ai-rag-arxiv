@@ -11,9 +11,12 @@ from time import perf_counter
 
 from arxiv_rag.agent.grader import Grader
 from arxiv_rag.agent.rewrite import rewrite_query
+from arxiv_rag.agent.router import route_question
 from arxiv_rag.agent.state import AgentState
+from arxiv_rag.agent.tools import IndexedPaper, fetch_arxiv_metadata, list_indexed_papers
 from arxiv_rag.config import Settings
-from arxiv_rag.retrieval.answer import generate_answer
+from arxiv_rag.retrieval.answer import Answer, generate_answer
+from arxiv_rag.retrieval.filters import ChunkFilter
 from arxiv_rag.retrieval.hybrid import Retriever
 
 log = logging.getLogger(__name__)
@@ -119,3 +122,71 @@ def make_rewrite_node(settings: Settings):
         }
 
     return rewrite
+
+
+def make_route_node(papers: list[IndexedPaper], settings: Settings):
+    """Build the route node. Classifies the question and, for `filtered`, builds the filter.
+
+    **`filtered` needs no node of its own.** It is `retrieve` with a `ChunkFilter`, and the
+    retrieve node has read ``state["chunk_filter"]`` since Stage 3. Two of the three routes
+    share one path; the router only adds a constraint to it.
+
+    A caller-supplied ``chunk_filter`` wins. An explicit constraint on the request is a
+    decision someone already made, and a router that overrides it is guessing over evidence.
+    """
+
+    def route(state: AgentState) -> dict:
+        decision = route_question(state["question"], papers, settings)
+        ids = decision.arxiv_ids
+        update: dict = {
+            "route": decision.route,
+            "route_ids": ids,
+            "trace": [f"route -> {decision.route} {ids or ''} ({decision.reason[:48]})"],
+        }
+        # `filtered` with ids and no caller filter: constrain retrieval to those papers.
+        if decision.route == "filtered" and ids and state.get("chunk_filter") is None:
+            update["chunk_filter"] = ChunkFilter(arxiv_ids=frozenset(ids))
+        return update
+
+    return route
+
+
+def make_catalog_node(store, settings: Settings):
+    """Build the catalog node. Answers about the corpus itself, with no model in the loop.
+
+    The only node that produces an answer without generating one, and that is the point:
+    "which papers do you have" and "do you cover TD-MPC2" are facts about the index.
+    Passing them through a generator would invite it to invent a paper list - the same
+    failure as answering a question the passages do not cover.
+
+    ``fetch_arxiv_metadata`` is reached only for a paper the question named that the index
+    lacks. That is the one place a three-second network call is worth it, because the
+    alternative is refusing without saying why.
+    """
+
+    def catalog(state: AgentState) -> dict:
+        papers = list_indexed_papers(store)
+        named = state.get("route_ids") or []
+        if named:
+            text = " ".join(
+                fetch_arxiv_metadata(aid, store, settings.arxiv_delay_seconds) for aid in named
+            )
+            detail = f"{len(named)} paper(s) identified"
+        else:
+            listing = "; ".join(
+                f"{p.aliases[0] if p.aliases else p.title[:44]} ({p.arxiv_id})" for p in papers
+            )
+            text = f"This index contains {len(papers)} papers: {listing}."
+            detail = f"listed {len(papers)} papers"
+        return {
+            "answer": Answer(
+                question=state["question"],
+                text=text,
+                citations=[],
+                refused=False,
+                retrieved_ids=[],
+            ),
+            "trace": [f"catalog -> {detail}"],
+        }
+
+    return catalog

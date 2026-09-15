@@ -1,0 +1,18 @@
+{"id": "r01", "split": "dev", "route": "retrieve", "question": "Why does JEPA training collapse to trivial solutions?", "arxiv_ids": [], "why": "spans many papers; no single paper scopes it"}
+{"id": "r02", "split": "dev", "route": "retrieve", "question": "How do model-based agents use imagined rollouts to train a policy?", "arxiv_ids": [], "why": "general mechanism, several papers"}
+{"id": "r03", "split": "dev", "route": "retrieve", "question": "What is the difference between a stochastic and a deterministic latent state?", "arxiv_ids": [], "why": "definitional, unscoped"}
+{"id": "r04", "split": "dev", "route": "retrieve", "question": "What evidence is there that predicting representations beats predicting pixels?", "arxiv_ids": [], "why": "evidence appears in at least two papers; restricting to one would lose half the answer"}
+{"id": "r05", "split": "test", "route": "retrieve", "question": "Which anti-collapse mechanisms appear across the JEPA papers?", "arxiv_ids": [], "why": "explicitly cross-corpus"}
+{"id": "r06", "split": "test", "route": "retrieve", "question": "How do these papers evaluate whether a learned world model is any good?", "arxiv_ids": [], "why": "asks about the corpus as a body of work, but the answer is in the passages"}
+{"id": "f01", "split": "dev", "route": "filtered", "question": "In the V-JEPA paper, what data is the model trained on?", "arxiv_ids": ["2404.08471"], "why": "names one paper; V-JEPA 2 passages are the measured failure this filter prevents"}
+{"id": "f02", "split": "dev", "route": "filtered", "question": "What masking strategy does I-JEPA use?", "arxiv_ids": ["2301.08243"], "why": "scoped to one paper"}
+{"id": "f03", "split": "dev", "route": "filtered", "question": "How do V-JEPA and V-JEPA 2 differ in the data they are trained on?", "arxiv_ids": ["2404.08471", "2506.09985"], "why": "TWO ids - a filter that collapses this to one paper answers half the question"}
+{"id": "f04", "split": "dev", "route": "filtered", "question": "What does IRIS use in place of an RSSM?", "arxiv_ids": ["2209.00588"], "why": "paper named by its acronym, not its title"}
+{"id": "f05", "split": "test", "route": "filtered", "question": "In Sub-JEPA, why are the random projection matrices frozen?", "arxiv_ids": ["2605.09241"], "why": "scoped to one paper"}
+{"id": "f06", "split": "test", "route": "filtered", "question": "What learning rate was used to train Dreamer?", "arxiv_ids": ["1912.01603"], "why": "NEAR-MISS: Dreamer IS indexed and the value is not in it. Correct route is filtered, and the correct outcome is a refusal. Absent value is not absent paper."}
+{"id": "c01", "split": "dev", "route": "catalog", "question": "Which papers do you have indexed?", "arxiv_ids": [], "why": "about the corpus itself; no passage answers it"}
+{"id": "c02", "split": "dev", "route": "catalog", "question": "Do you cover TD-MPC2?", "arxiv_ids": [], "why": "membership question, paper absent"}
+{"id": "c03", "split": "dev", "route": "catalog", "question": "What did TD-MPC2 change relative to the original TD-MPC?", "arxiv_ids": [], "why": "NEAR-MISS: phrased as content, but the paper is not indexed. 'TD-MPC2 is not in this index' beats 'insufficient context'. This is eval q004."}
+{"id": "c04", "split": "dev", "route": "catalog", "question": "Is LeJEPA in your corpus?", "arxiv_ids": [], "why": "membership; LeJEPA is absent, which is why eval q038 is unanswerable"}
+{"id": "c05", "split": "test", "route": "catalog", "question": "How many papers are in the index?", "arxiv_ids": [], "why": "a count of the corpus; deterministic, no model needed"}
+{"id": "c06", "split": "test", "route": "catalog", "question": "Do you have anything on MuZero?", "arxiv_ids": [], "why": "membership, absent paper, phrased loosely"}

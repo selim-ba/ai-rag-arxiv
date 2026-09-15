@@ -640,6 +640,71 @@ above. Reasons to revisit: an eval set large enough to resolve answer-quality di
 emit an arXiv id that was not retrieved, say, which `resolve_citations` already does in
 code without a model.
 
+### The router: the first component with a metric that needs no evaluator
+
+Three routes - `retrieve` (unscoped question), `filtered` (scoped to named papers),
+`catalog` (about the corpus itself, or a paper not in it). No "answer directly" route: the
+generator may only use retrieved passages, so such a route would either never fire or break
+the grounding rule.
+
+`eval/routes.jsonl` - 18 questions, 6 per route, 12 dev / 6 test - was written **before**
+the router existed. It is a *specification*, not ground truth discovered by observation,
+which is why the project can author it: the failure it guards against is a router tuned
+until its own output looks reasonable. Scoring is exact match. **No rubric, no judge, no
+kappa, no noise band** - the first metric here that needs no evaluator, after a week in
+which the faithfulness axis turned out to be unmeasurable at this sample size.
+
+| configuration | route accuracy | filtered with the right ids |
+|---|---|---|
+| titles only | 0.833 | **0 / 4** |
+| + paper aliases, + "catalog is membership, not ideas" | 0.917 | 3 / 4 |
+| + "copy the id character for character" | 0.917 | 1 / 4 |
+| reverted to the previous line | 0.917 | 3 / 4 |
+| **held-out test split, prompt frozen** | **1.000 (6/6)** | 1 / 2 |
+
+**Route accuracy alone would have called the first configuration an 83% success.** It got
+the right route and the wrong paper every single time. Searching the wrong paper is worse
+than not filtering at all - the system answers confidently from a neighbouring model - so
+the ids column is reported separately and is the number that matters.
+
+**The fix was data, not prompting.** The router matched questions against a catalog of
+arXiv ids and titles, and the titles do not contain the names anyone uses:
+
+    question says     title in the index
+    V-JEPA            Revisiting Feature Prediction for Learning Visual ... Video
+    I-JEPA            Self-Supervised Learning from Images with a Joint-Embedding ...
+    IRIS              Transformers are Sample-Efficient World Models
+
+"V-JEPA" went to the one title containing that string - *V-JEPA 2* - reproducing the exact
+confusion behind q030's fabricated answer, by a different component. "IRIS" matched nothing
+and the router reported, honestly, that IRIS is not indexed. It is.
+
+`agent/aliases.py` is hand-written because it cannot be derived, and both failed attempts
+are instructive: from abstracts, V-JEPA's top candidates are CNRS, PSL and LIGM (author
+affiliations); by frequency, "V-JEPA" appears 181 times in the **V-JEPA 2** paper and
+"DreamerV3" appears **once** in its own, which calls itself Dreamer. The names nest, so
+counting cannot tell an introduction from a citation.
+
+**A prompt edit made it worse, reproducibly.** Adding "copy their arXiv ids character for
+character" did not fix its target and pushed two other cases onto the V-JEPA 2 row -
+1/4, twice, byte-identical output. Reverting restored 3/4. Four runs, unambiguous
+attribution, and the lesson is that telling a model to match more literally is the wrong
+instruction when the failure is surface-matching in the first place.
+
+**Known residual, deliberately unfixed.** On the held-out split, "Sub-JEPA" routed to JEDI
+(`2605.13013`), whose catalog line reads `JEDI - JEDI: Joint Embedding Diffusion World
+Model...` - the alias duplicated by the title, beside the words JEPA expands to. The same
+doubling affects the V-JEPA 2 row. The fix is obvious (do not render an alias the title
+already carries) and was **not applied**, because the case appeared on the test split and
+acting on it would spend the only held-out measurement available.
+
+`verify_route` reconciles the model's route with the index: `filtered` with no ids becomes
+`retrieve`, `filtered` on an unindexed paper becomes `catalog`, and a mixed list keeps what
+exists. It earned its place on the first live run - `f04` recognised IRIS, omitted the id,
+and was demoted to `retrieve` rather than becoming a filter that silently constrains
+nothing. Seventh place in this codebase where a model's output is checked rather than
+trusted.
+
 ### What this rules in and out
 
 - **Rewrite-and-retry**: measured at 0 rescues from 5 chances. Kept in the codebase,

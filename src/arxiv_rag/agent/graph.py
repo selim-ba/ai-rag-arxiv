@@ -12,12 +12,15 @@ from langgraph.graph import END, START, StateGraph
 
 from arxiv_rag.agent.grader import Grader
 from arxiv_rag.agent.nodes import (
+    make_catalog_node,
     make_generate_node,
     make_grade_node,
     make_retrieve_node,
     make_rewrite_node,
+    make_route_node,
 )
 from arxiv_rag.agent.state import AgentState, initial_state
+from arxiv_rag.agent.tools import list_indexed_papers
 from arxiv_rag.config import Settings
 from arxiv_rag.retrieval.answer import Answer
 from arxiv_rag.retrieval.filters import ChunkFilter
@@ -58,8 +61,39 @@ def make_decide_after_grade(settings: Settings):
     return decide
 
 
-def build_graph(retriever: Retriever, settings: Settings, grader: Grader | None = None):
+def decide_after_route(state: AgentState) -> str:
+    """Conditional edge out of the router. Two destinations, three routes.
+
+    ``filtered`` and ``retrieve`` both go to ``retrieve`` - the difference between them is
+    a ``ChunkFilter`` the route node already put in state, not a different path. Only
+    ``catalog`` diverges, because it is the one route that answers from the index's
+    metadata rather than from its passages.
+
+    Unknown routes fall through to ``retrieve``. A router that returns something
+    unexpected should degrade to the behaviour the system had before it existed, not stop
+    the request - the same failing-open rule as `route_question` and the grader.
+    """
+    return "catalog" if state.get("route") == "catalog" else "retrieve"
+
+
+def build_graph(
+    retriever: Retriever,
+    settings: Settings,
+    grader: Grader | None = None,
+    store=None,
+):
     """Wire the nodes into a compiled graph.
+
+    The shape as of Stage 4 step 5::
+
+        START -> route -+- catalog ---------------------------------> catalog -> END
+                        |
+                        +- retrieve / filtered --> retrieve -> grade -+-> generate -> END
+                                                      ^               |
+                                                      +--- rewrite <--+
+
+    ``filtered`` is not a node: it is ``retrieve`` with a ``ChunkFilter`` the route node
+    put in state.
 
     The shape as of Stage 4 step 3::
 
@@ -80,12 +114,26 @@ def build_graph(retriever: Retriever, settings: Settings, grader: Grader | None 
     and it belongs in Stage 5 with sessions, not here.
     """
     graph = StateGraph(AgentState)
+    # The router needs the catalog, and the catalog node needs the store. Without a store
+    # the graph is exactly what it was before Stage 4 step 5 - which keeps every existing
+    # test and the pipeline comparison valid.
+    routed = store is not None
+    if routed:
+        graph.add_node("route", make_route_node(list_indexed_papers(store), settings))
+        graph.add_node("catalog", make_catalog_node(store, settings))
     graph.add_node("retrieve", make_retrieve_node(retriever, settings))
     graph.add_node("grade", make_grade_node(grader if grader is not None else Grader(settings)))
     graph.add_node("rewrite", make_rewrite_node(settings))
     graph.add_node("generate", make_generate_node(settings))
 
-    graph.add_edge(START, "retrieve")
+    if routed:
+        graph.add_edge(START, "route")
+        graph.add_conditional_edges(
+            "route", decide_after_route, {"catalog": "catalog", "retrieve": "retrieve"}
+        )
+        graph.add_edge("catalog", END)
+    else:
+        graph.add_edge(START, "retrieve")
     graph.add_edge("retrieve", "grade")
     # The conditional edge. The third argument maps the function's return value to a node
     # name; returning a string that is not a key here is a runtime error, not a silent

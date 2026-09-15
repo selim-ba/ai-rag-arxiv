@@ -4,7 +4,7 @@ PYTHON ?= python3
 # `make` swallows anything starting with `--`, so flags have to arrive as a variable.
 ARGS ?=
 
-.PHONY: install dev test lint fmt ingest index check-eval eval retrieval-eval grade-eval label-judge score-judge gold-audit gold-apply clean
+.PHONY: install dev test lint fmt ingest index check-eval eval retrieval-eval grade-eval route-eval label-judge score-judge gold-audit gold-apply clean
 
 install:
 	@$(PYTHON) -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" \
@@ -45,6 +45,9 @@ retrieval-eval:
 
 grade-eval:
 	.venv/bin/python -m scripts.grade_eval $(ARGS)
+
+route-eval:
+	.venv/bin/python -m scripts.route_eval $(ARGS)
 
 label-judge:
 	.venv/bin/python -m scripts.label_judge sample $(ARGS)

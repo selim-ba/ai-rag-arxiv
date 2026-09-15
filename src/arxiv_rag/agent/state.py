@@ -65,6 +65,14 @@ class AgentState(TypedDict, total=False):
     # without this the number is silently 0 and the eval harness drops the whole row.
     retrieve_ms: float
 
+    # The router's decision. In state because an edge reads it, and because a trace that
+    # shows which route ran is the difference between an agent and a pipeline with extra
+    # latency.
+    route: str
+    # The ids the router named. Kept because `verify_route` puts UNINDEXED ids here when it
+    # sends a question to catalog - that is precisely the paper the answer must name.
+    route_ids: list[str]
+
     # -- loop control. In state, deliberately: the edge condition reads it.
     attempts: int
 
@@ -92,6 +100,8 @@ def initial_state(
         first_hits=[],
         answer=None,
         grade=None,
+        route="retrieve",
+        route_ids=[],
         attempts=0,
         retrieve_ms=0.0,
         trace=[],

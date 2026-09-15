@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     # judge: it runs on every query (cost matters) and a wrong verdict costs a retry.
     grader_model: str = "gpt-4o-mini"
 
+    # Separable for the same reason as the grader: the router runs on every request and a
+    # wrong route costs a whole request, not a retry. Its job is a membership check over a
+    # 49-line list, which is a different skill from generating or judging.
+    router_model: str = "gpt-4o-mini"
+
     # How many times the agent may rewrite the query and retrieve again before it gives
     # up and answers with whatever it has. The loop's hard cap, and the reason the agent
     # terminates even when the grader never changes its mind.

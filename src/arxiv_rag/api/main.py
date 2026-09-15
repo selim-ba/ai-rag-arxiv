@@ -72,7 +72,13 @@ async def lifespan(app: FastAPI):
     # Compiled once, for the same reason the index is loaded once. Compilation is cheap;
     # what matters is that the Grader and the retriever are bound at construction time, so
     # a request never builds its own dependencies.
-    app.state.graph = build_graph(retriever, settings) if retriever is not None else None
+    # `store=` is what turns the router on. The API gets it; `scripts/eval.py` does not,
+    # because all 40 eval questions are corpus-content questions and routing them would add
+    # a model call per question to a harness whose numbers are compared across three weeks
+    # of runs.
+    app.state.graph = (
+        build_graph(retriever, settings, store=store) if retriever is not None else None
+    )
     if app.state.graph is not None:
         log.info("agent graph compiled; POST /ask uses it: %s", settings.use_agent)
 

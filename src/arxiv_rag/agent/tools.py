@@ -23,6 +23,7 @@ which papers are indexed.
 import logging
 from dataclasses import dataclass
 
+from arxiv_rag.agent.aliases import aliases_for
 from arxiv_rag.ingestion.arxiv_client import fetch_by_ids, normalise_arxiv_id
 from arxiv_rag.retrieval.filters import ChunkFilter
 from arxiv_rag.retrieval.hybrid import Retriever
@@ -38,6 +39,9 @@ class IndexedPaper:
     arxiv_id: str
     title: str
     chunk_count: int
+    # The names people actually use. Empty for most papers; see `agent.aliases` for why
+    # this is hand-written rather than derived.
+    aliases: tuple[str, ...] = ()
 
 
 def list_indexed_papers(store: ChunkStore) -> list[IndexedPaper]:
@@ -57,7 +61,12 @@ def list_indexed_papers(store: ChunkStore) -> list[IndexedPaper]:
         titles.setdefault(chunk.arxiv_id, chunk.title)
         counts[chunk.arxiv_id] = counts.get(chunk.arxiv_id, 0) + 1
     return [
-        IndexedPaper(arxiv_id=aid, title=titles[aid], chunk_count=counts[aid])
+        IndexedPaper(
+            arxiv_id=aid,
+            title=titles[aid],
+            chunk_count=counts[aid],
+            aliases=aliases_for(aid),
+        )
         for aid in sorted(titles)
     ]
 
