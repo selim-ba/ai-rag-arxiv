@@ -97,6 +97,13 @@ class Settings(BaseSettings):
     # was voting at full strength.
     fusion_weights: str = "1,0.3"
 
+    # Route POST /ask through the LangGraph agent instead of calling answer_question.
+    # Off by default, deliberately: the agent and the pipeline are measured to produce
+    # identical numbers with `max_retries=0`, so switching is a behaviour change nobody
+    # can see in the eval set and a latency change every caller can. One env var
+    # (PT_USE_AGENT=true) turns it on, and /ask reports which path served the request.
+    use_agent: bool = False
+
     log_level: str = "INFO"
 
     @property

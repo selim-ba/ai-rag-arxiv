@@ -104,6 +104,7 @@ def run_agent(
     graph,
     question: str,
     chunk_filter: ChunkFilter | None = None,
+    k: int | None = None,
 ) -> Answer:
     """Invoke a compiled graph for one question and hand back the Answer. Given to you.
 
@@ -112,7 +113,7 @@ def run_agent(
     ``Retriever`` protocol - the agent should be swappable for the pipeline without either
     side knowing.
     """
-    final: AgentState = graph.invoke(initial_state(question, chunk_filter))
+    final: AgentState = graph.invoke(initial_state(question, chunk_filter, k))
     log.debug("trace: %s", final.get("trace"))
     answer = final.get("answer")
     if answer is None:  # a graph that ended without generating is a wiring bug, not an edge case
@@ -123,6 +124,7 @@ def run_agent(
     # What the loop actually did. Carried on the Answer because that is the only thing
     # `scripts/eval.py` sees, and a metric the harness cannot see does not exist.
     answer.attempts = final.get("attempts", 0)
+    answer.trace = list(final.get("trace", []))
     if answer.attempts:
         answer.first_retrieved_ids = [h.chunk.chunk_id for h in final.get("first_hits", [])]
         answer.final_query = final.get("query", "")

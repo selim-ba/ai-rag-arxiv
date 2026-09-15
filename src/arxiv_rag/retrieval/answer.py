@@ -96,6 +96,11 @@ class Answer(BaseModel):
     # it is the one field here meant to be read by a human: aggregate metrics cannot tell
     # you a rewrite is fluent nonsense, and eight of these read side by side can.
     final_query: str = Field(default="", description="the query the last retrieval used")
+    # What the agent did, in order. Empty on the pipeline path, which has no steps to
+    # report. Carried on the Answer rather than logged because an agent whose decisions
+    # are only visible in server logs is, to anyone calling the API, indistinguishable
+    # from a pipeline - and the decisions are the entire point of the stage.
+    trace: list[str] = Field(default_factory=list, description="agent steps, in order")
 
 
 # -- pure functions ------------------------------------------------------------------

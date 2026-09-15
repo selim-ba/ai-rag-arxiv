@@ -27,6 +27,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from arxiv_rag import __version__
+from arxiv_rag.agent.graph import build_graph, run_agent
 from arxiv_rag.config import Settings, get_settings
 from arxiv_rag.ingestion.models import Chunk
 from arxiv_rag.retrieval.answer import answer_question
@@ -68,12 +69,20 @@ async def lifespan(app: FastAPI):
             settings.fusion_weight_list or "equal",
         )
 
+    # Compiled once, for the same reason the index is loaded once. Compilation is cheap;
+    # what matters is that the Grader and the retriever are bound at construction time, so
+    # a request never builds its own dependencies.
+    app.state.graph = build_graph(retriever, settings) if retriever is not None else None
+    if app.state.graph is not None:
+        log.info("agent graph compiled; POST /ask uses it: %s", settings.use_agent)
+
     app.state.store = store
     app.state.retriever = retriever
     app.state.chunks_by_id = {c.chunk_id: c for c in store.chunks} if store else {}
     yield
     app.state.store = None
     app.state.retriever = None
+    app.state.graph = None
 
 
 app = FastAPI(
@@ -97,9 +106,23 @@ def get_retriever(request: Request) -> Retriever:
     return retriever
 
 
+def get_graph(request: Request):
+    """Dependency: the compiled agent graph, or 503. Same shape as ``get_retriever``."""
+    graph = request.app.state.graph
+    if graph is None:
+        raise HTTPException(status_code=503, detail="index not loaded")
+    return graph
+
+
 class AskRequest(BaseModel):
     question: str = Field(min_length=3, max_length=500)
     k: int | None = Field(default=None, ge=1, le=20, description="passages to retrieve")
+    # Per-request override of the configured default, so the two paths can be compared
+    # against each other on a live server without a restart. `None` means "use the
+    # setting" - a third state, which is why this is `bool | None` and not `bool`.
+    use_agent: bool | None = Field(
+        default=None, description="override PT_USE_AGENT for this request"
+    )
 
 
 class Source(BaseModel):
@@ -118,6 +141,14 @@ class AskResponse(BaseModel):
     citations: list[str] = Field(description="arXiv ids cited in the answer, in order")
     refused: bool
     sources: list[Source] = Field(description="passages retrieved, best first")
+    # Which path served this request, and what it did. Reported rather than inferred:
+    # the agent and the pipeline return identical answers at `max_retries=0`, so without
+    # this a caller cannot tell them apart, and neither could anyone debugging a latency
+    # complaint.
+    mode: str = Field(description='"agent" or "pipeline"')
+    trace: list[str] = Field(default_factory=list, description="agent steps; empty for pipeline")
+    retrieve_ms: float = 0.0
+    generate_ms: float = 0.0
 
 
 @app.get("/health")
@@ -161,9 +192,24 @@ def ask(
     payload: AskRequest,
     settings: Settings = Depends(get_settings),
     retriever: Retriever = Depends(get_retriever),
+    graph=Depends(get_graph),
 ) -> AskResponse:
-    """Answer one question against the indexed corpus."""
-    answer = answer_question(payload.question, retriever, settings, k=payload.k)
+    """Answer one question against the indexed corpus.
+
+    Two paths, one response shape. ``use_agent`` on the request overrides the setting for
+    this call, so the two can be compared against a running server without a restart - and
+    ``mode`` in the response says which one actually ran, because at ``max_retries=0`` they
+    are measured to produce identical answers and a caller could not otherwise tell.
+    """
+    # `is None` and not `or`: `use_agent=False` on the request must override a `True`
+    # setting, and `or` would silently ignore it. Sixth place this distinction matters.
+    use_agent = settings.use_agent if payload.use_agent is None else payload.use_agent
+
+    if use_agent:
+        answer = run_agent(graph, payload.question, k=payload.k)
+    else:
+        answer = answer_question(payload.question, retriever, settings, k=payload.k)
+
     by_id = app.state.chunks_by_id
     sources = [to_source(by_id[cid]) for cid in answer.retrieved_ids if cid in by_id]
     return AskResponse(
@@ -172,4 +218,8 @@ def ask(
         citations=answer.citations,
         refused=answer.refused,
         sources=sources,
+        mode="agent" if use_agent else "pipeline",
+        trace=answer.trace,
+        retrieve_ms=round(answer.retrieve_ms, 1),
+        generate_ms=round(answer.generate_ms, 1),
     )

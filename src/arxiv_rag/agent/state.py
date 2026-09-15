@@ -40,6 +40,10 @@ class AgentState(TypedDict, total=False):
     # -- input
     question: str
     chunk_filter: ChunkFilter | None
+    # Per-request override for how many passages to retrieve. `None` means "use the
+    # configured default" - NOT zero, and not falsy-checked anywhere, because this project
+    # has now shipped five bugs from treating a legitimate empty value as absent.
+    k: int | None
 
     # -- working values, overwritten by whichever node produced them last
     query: str  # what retrieval actually searched for; diverges from `question` on rewrite
@@ -68,7 +72,11 @@ class AgentState(TypedDict, total=False):
     trace: Annotated[list[str], operator.add]
 
 
-def initial_state(question: str, chunk_filter: ChunkFilter | None = None) -> AgentState:
+def initial_state(
+    question: str,
+    chunk_filter: ChunkFilter | None = None,
+    k: int | None = None,
+) -> AgentState:
     """A fresh state for one question. Given to you.
 
     Every key a node might read is initialised here rather than left absent, so a node can
@@ -79,6 +87,7 @@ def initial_state(question: str, chunk_filter: ChunkFilter | None = None) -> Age
         question=question,
         query=question,
         chunk_filter=chunk_filter,
+        k=k,
         hits=[],
         first_hits=[],
         answer=None,

@@ -31,7 +31,11 @@ def make_retrieve_node(retriever: Retriever, settings: Settings):
     def retrieve(state: AgentState) -> dict:
         query = state.get("query") or state["question"]
         started = perf_counter()
-        hits = retriever.search(query, k=settings.top_k, chunk_filter=state.get("chunk_filter"))
+        # `is None`, not `or`: k=0 is invalid upstream, but reaching for `or` here is how
+        # `k or settings.top_k` became this project's first falsy-default bug.
+        requested = state.get("k")
+        k = settings.top_k if requested is None else requested
+        hits = retriever.search(query, k=k, chunk_filter=state.get("chunk_filter"))
         elapsed_ms = (perf_counter() - started) * 1000
         # A partial dict, not the whole state. `trace` has an `operator.add` reducer, so
         # this single-element list is APPENDED to whatever is already there.
