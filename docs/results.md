@@ -525,6 +525,64 @@ refusing while still answering. That reasoning does not hold for a final sentenc
 itself the refusal, so **`refusal_rate = 0.833` is a lower bound**, on the one metric Stage
 4 is meant to move.
 
+### refusal_rate 0.833 was already correct, and chasing it cost 18 answers
+
+Stage 4's definition of done asks for `refusal_rate` 0.833 -> 1.000, on the belief that
+the missing 0.167 was a hallucination on an unanswerable question. It was not.
+
+**q027** — *"What imagination horizon did the original Dreamer use?"* The first Dreamer
+paper lists H as a hyperparameter symbol and puts the value in an appendix that was not
+ingested; DreamerV2 says 15 and DreamerV3 says 16, which are tempting and belong to
+different agents. The model answered:
+
+> The original Dreamer does not specify a fixed imagination horizon in the provided
+> passages... does not provide a specific value for H itself [1912.01603]. Thus, the exact
+> imagination horizon used by the original Dreamer is not mentioned.
+
+That is a **correct refusal**, and everything it says about the passages is supported. It
+simply never emits `INSUFFICIENT_CONTEXT`, and `is_refusal` is `startswith`, so it scores
+as a failure to refuse. The entire justification for a verify node was this artefact — the
+fifth time in this project that the first thing to check was the instrument.
+
+Two prompt edits tried to close the gap. Both hit the target and broke the system:
+
+| generator prompt | refusal_rate | false_refusal | answer_rate | **accuracy** |
+|---|---|---|---|---|
+| one refusal bullet (shipped) | 0.833 | **0.059** | **0.941** | **0.925** |
+| + "being on-topic is not being an answer" | **1.000** | 0.559 | 0.441 | 0.525 |
+| + "decline only for the MAIN thing asked" | **1.000** | 0.382 | 0.618 | 0.675 |
+
+19 and then 13 of 34 answerable questions refused, many with the gold chunk retrieved.
+The second edit was written specifically to *reduce* refusing and still over-refused,
+which points at salience rather than content: a prompt carrying two bullets about
+declining produces more declining than one carrying a single bullet, whatever the second
+says. Untested — confirming it would have meant a third prompt tuned against 40 questions.
+
+**The selection effect is the part worth keeping.** While this happened, answer quality
+*improved*:
+
+| | shipped | Goodharted |
+|---|---|---|
+| faithfulness | 0.806 | **0.867** |
+| correctness | 0.406 | **0.733** |
+| judged questions | 32 | **15** |
+
+Both metrics are computed over answered questions only, so refusing the hard half raised
+them. Read alone, that run looks like the best answer quality the project has recorded.
+The only number that caught it is `accuracy`, the 2x2 of should-answer against did-answer,
+which fell 0.925 -> 0.525. That is the argument for scoring refusal as a confusion matrix
+instead of a rate, and it is the second time a metric in this project has been defended by
+a companion metric rather than by inspection.
+
+Reverted to the shipped prompt. Kept: `refusal_token_misplaced`, which counts answers
+carrying the token somewhere other than the start (q005's shape), and a regression test
+whose docstring holds the table above so the next person to have this idea meets the
+evidence first.
+
+**The target is restated: `refusal_rate = 0.833` is correct behaviour on this eval set.**
+The residual 0.167 is one question whose correct refusal is written in prose. Any future
+work on it is formatting, not reasoning, and must be scored on `accuracy`.
+
 ### What this rules in and out
 
 - **Rewrite-and-retry**: measured at 0 rescues from 5 chances. Kept in the codebase,

@@ -20,7 +20,7 @@ from arxiv_rag.config import get_settings
 from arxiv_rag.evaluation.judge import RefusalRecord, judge_answer, refusal_scores
 from arxiv_rag.evaluation.metrics import hit_at_k, mean, recall_at_k, reciprocal_rank
 from arxiv_rag.evaluation.timing import summarise
-from arxiv_rag.retrieval.answer import answer_question, format_context
+from arxiv_rag.retrieval.answer import answer_question, format_context, refusal_token_misplaced
 from arxiv_rag.retrieval.hybrid import DenseRetriever, build_hybrid
 from arxiv_rag.retrieval.store import ChunkStore, SearchHit
 
@@ -133,6 +133,8 @@ def main() -> None:
             "answer": answer.text,
             "citations": answer.citations,
             "refused": answer.refused,
+            # The refusal contract, counted rather than assumed. See `refusal_token_misplaced`.
+            "refusal_misplaced": refusal_token_misplaced(answer.text),
             "retrieved_ids": retrieved,
             "gold_chunk_ids": gold,
             "retrieve_ms": round(answer.retrieve_ms, 1),
@@ -299,6 +301,10 @@ def report(records: list[dict]) -> None:
     print(f"\nREFUSAL   (n={len(records)})")
     for key, value in refusal.items():
         print(f"  {key:20} {value:.3f}")
+    misplaced = [r["id"] for r in records if r.get("refusal_misplaced")]
+    # Quote this next to refusal_rate: each one is an answer that declined in prose and
+    # was scored as an answer, then judged on axes that do not apply to a refusal.
+    print(f"  {'token misplaced':20} {len(misplaced)}  {misplaced}")
 
     unfaithful = [r for r in judged if not r["faithful"]]
     if unfaithful:

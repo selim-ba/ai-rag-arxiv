@@ -3,9 +3,11 @@
 from arxiv_rag.ingestion.models import Chunk
 from arxiv_rag.retrieval.answer import (
     REFUSAL_TOKEN,
+    SYSTEM_PROMPT,
     extract_citations,
     format_context,
     is_refusal,
+    refusal_token_misplaced,
     resolve_citations,
 )
 from arxiv_rag.retrieval.store import SearchHit
@@ -178,3 +180,77 @@ def test_resolved_text_feeds_extract_citations():
     """The two functions compose: resolve, then extract. No id can be fabricated."""
     resolved = resolve_citations("First [P2], then [P1], then [P2] again.", two_hits())
     assert extract_citations(resolved) == ["1811.04551", "2107.08241"]
+
+
+# -- the refusal contract -------------------------------------------------------------
+#
+# Measured, and the reason the generator prompt now names the trigger condition rather
+# than relying on the model to recognise a refusal by feel:
+#
+#   q027  "What imagination horizon did the original Dreamer use?" - the value is in an
+#         un-ingested appendix. The model wrote a CORRECT prose refusal with no token at
+#         all, was scored `refused=False`, and dragged refusal_rate to 0.833. The whole
+#         justification for Stage 4's verify node was this artefact.
+#   q005  ended "Thus, the answer is INSUFFICIENT_CONTEXT." - token present, wrong place.
+#   q024  cited a paper, answered substantively, THEN appended the token. Not a refusal.
+
+
+def test_a_bare_token_is_a_refusal():
+    assert is_refusal(REFUSAL_TOKEN)
+
+
+def test_the_token_with_an_explanation_after_it_is_a_refusal():
+    """The contracted shape: token first, colon, one sentence."""
+    assert is_refusal(f"{REFUSAL_TOKEN}: the passages never give a value for H.")
+
+
+def test_leading_whitespace_does_not_hide_a_refusal():
+    assert is_refusal(f"   {REFUSAL_TOKEN}: nothing here.")
+
+
+def test_an_answer_that_mentions_the_token_at_the_end_is_not_a_refusal():
+    """q024's shape. It cited a paper and answered; the trailing token does not undo that."""
+    text = f"IRIS uses a discrete autoencoder [P1]. {REFUSAL_TOKEN}: the objective is unclear."
+    assert not is_refusal(text)
+
+
+def test_a_misplaced_token_is_counted():
+    assert refusal_token_misplaced(f"The passages do not say. Thus, the answer is {REFUSAL_TOKEN}.")
+
+
+def test_a_correctly_placed_token_is_not_counted():
+    assert not refusal_token_misplaced(f"{REFUSAL_TOKEN}: no passage gives a value.")
+
+
+def test_an_ordinary_answer_is_neither():
+    text = "Dreamer uses a value model to extend beyond the imagination horizon [P1]."
+    assert not is_refusal(text) and not refusal_token_misplaced(text)
+
+
+def test_the_refusal_rule_stays_a_single_bullet():
+    """MEASURED GOODHART, kept as a regression test. Do not add a second refusal rule.
+
+    `refusal_rate` sat at 0.833 because q027 - "What imagination horizon did the original
+    Dreamer use?", whose value lives in an un-ingested appendix - wrote a CORRECT prose
+    refusal with no token. Not a hallucination: a formatting quirk on one question. Two
+    attempts to close that 0.167:
+
+    | prompt                                  | refusal | false_refusal | answer | accuracy |
+    |-----------------------------------------|---------|---------------|--------|----------|
+    | committed (one bullet)                  |  0.833  |     0.059     | 0.941  |  0.925   |
+    | + "on-topic is not being an answer"     |  1.000  |     0.559     | 0.441  |  0.525   |
+    | + "decline only for the MAIN thing"     |  1.000  |     0.382     | 0.618  |  0.675   |
+
+    Both hit the target and destroyed the system - 19 and 13 of 34 answerable questions
+    refused, many with the gold chunk retrieved. The SECOND attempt was written to *reduce*
+    refusing and still over-refused, which suggests the damage is salience rather than
+    content: a prompt with two bullets about declining produces more declining than a
+    prompt with one, whatever the second bullet says. Untested - one more run would have
+    been one more prompt tuned against 40 questions.
+
+    And note what the answer-quality metrics did while this happened: faithfulness and
+    correctness both ROSE, because the judged set shrank from 32 to 15 and only the easy
+    questions survived. `accuracy` - the 2x2 - is the only number that caught it.
+    """
+    bullets = [b for b in SYSTEM_PROMPT.split("\n- ") if REFUSAL_TOKEN in b]
+    assert len(bullets) == 1, f"{len(bullets)} refusal bullets; see this test's docstring"

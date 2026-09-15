@@ -194,12 +194,34 @@ def resolve_citations(text: str, hits: list[SearchHit]) -> str:
 
 
 def is_refusal(text: str) -> bool:
-    """Did the model decline to answer? Given to you — one line, but a real decision.
+    """Did the model decline to answer?
 
     ``startswith`` rather than ``in``: the token appearing mid-answer means the model
-    is talking *about* refusing while still answering, which is not a refusal.
+    is talking *about* refusing while still answering, which is not a refusal. q024 is
+    exactly that - it cites a paper, gives substantive content, then appends the token.
+
+    The rule is only as good as the model's compliance with it, which is why
+    ``refusal_token_misplaced`` counts the cases where the token appears somewhere else.
     """
     return text.strip().startswith(REFUSAL_TOKEN)
+
+
+def refusal_token_misplaced(text: str) -> bool:
+    """The token is present but not where the contract says it must be.
+
+    A contract nobody counts violations of is a suggestion. Measured: q005 wrote a prose
+    refusal ending "Thus, the answer is INSUFFICIENT_CONTEXT." and was scored as an
+    answered question, then judged on both axes - a refusal being graded for correctness
+    is meaningless, which is why ``scripts/eval.py`` deliberately skips refusals.
+
+    This catches only the mechanically visible case. A refusal written entirely in prose
+    with no token at all - q027, which correctly declined to invent Dreamer's imagination
+    horizon and was counted as a failure to refuse - is invisible here. That one is why
+    the prompt now names the trigger condition ("do not specify", "do not state") instead
+    of relying on the model to recognise a refusal by feel.
+    """
+    stripped = text.strip()
+    return REFUSAL_TOKEN in stripped and not stripped.startswith(REFUSAL_TOKEN)
 
 
 # -- the thin network layer ----------------------------------------------------------
