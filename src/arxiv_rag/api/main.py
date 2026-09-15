@@ -20,10 +20,12 @@ Run it with ``make dev``, then open http://localhost:8000/docs - FastAPI generat
 page from the type hints below, which is a large part of why it is worth using.
 """
 
+import json
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from arxiv_rag import __version__
@@ -32,7 +34,7 @@ from arxiv_rag.agent.graph import build_graph, run_agent
 from arxiv_rag.agent.session import SessionStore, new_conversation_id
 from arxiv_rag.config import Settings, get_settings
 from arxiv_rag.ingestion.models import Chunk
-from arxiv_rag.retrieval.answer import answer_question
+from arxiv_rag.retrieval.answer import answer_question, assemble_answer, stream_generate
 from arxiv_rag.retrieval.hybrid import Retriever, build_hybrid
 from arxiv_rag.retrieval.store import ChunkStore
 
@@ -262,4 +264,96 @@ def ask(
         generate_ms=round(answer.generate_ms, 1),
         conversation_id=conversation_id,
         resolved_question=question if resolution.changed else None,
+    )
+
+
+def sse(event: str, payload: dict) -> str:
+    """One server-sent event.
+
+    The wire format is two lines and a blank one. Written out rather than pulled from a
+    library because the whole protocol is visible here, and a stray newline inside `data:`
+    would silently split one event into two.
+    """
+    return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
+
+
+@app.post("/ask/stream")
+def ask_stream(
+    payload: AskRequest,
+    settings: Settings = Depends(get_settings),
+    retriever: Retriever = Depends(get_retriever),
+) -> StreamingResponse:
+    """Answer one question, streaming the text as it is produced.
+
+    **Three event types.** `token` carries a piece of the answer; `done` carries everything
+    that is only knowable once the answer is complete; `error` carries a failure that
+    happened after the response had already begun.
+
+    **The answer streams with `[P1]` markers in it, not arXiv ids, and that is deliberate.**
+    `resolve_citations` maps a marker to the id of the passage it points at, and it needs
+    the finished text. Three ways to handle that were considered:
+
+    1. stream the markers, resolve in the `done` event - this one. The guarantee is
+       untouched and the client substitutes;
+    2. buffer output at marker boundaries. Also correct, and the buffering breaks in ways
+       that only show up when an answer ends mid-marker;
+    3. give the model real arXiv ids so no resolution is needed. Out on evidence: an early
+       version invented `2606.09985` for a paper numbered `2506.09985`, which is why
+       markers exist.
+
+    **Retrieval happens before the first token**, so a retrieval failure is still a normal
+    HTTP error rather than an `error` frame in a 200 response. Once bytes are on the wire
+    the status code is already sent, which is why the failure path splits here.
+
+    Not routed through the agent. Streaming the pipeline covers the part a user waits for;
+    the router and grader run before generation and would arrive as one silent pause, so
+    `event: step` frames for them are worth building only alongside `graph.stream`.
+    """
+    sessions: SessionStore = app.state.sessions
+    conversation_id = payload.conversation_id or new_conversation_id()
+    history = sessions.history(payload.conversation_id)
+    resolution = resolve_followup(history, payload.question, settings)
+    question = resolution.resolved
+
+    # Before the stream opens: a failure here can still be a 5xx.
+    hits = retriever.search(question, k=payload.k or settings.top_k)
+
+    def events():
+        pieces: list[str] = []
+        try:
+            for piece in stream_generate(question, hits, settings):
+                pieces.append(piece)
+                yield sse("token", {"text": piece})
+        except Exception as exc:  # noqa: BLE001 - the response has already started
+            log.warning("stream failed after %d pieces: %s", len(pieces), exc)
+            yield sse("error", {"detail": "generation failed", "partial": "".join(pieces)})
+            return
+
+        # The same pure function the non-streaming path uses, on the same complete text.
+        answer = assemble_answer(question, hits, "".join(pieces))
+        sessions.append(conversation_id, Turn(question=payload.question, answer=answer.text))
+        by_id = app.state.chunks_by_id
+        yield sse(
+            "done",
+            {
+                "question": payload.question,
+                "answer": answer.text,
+                "citations": answer.citations,
+                "refused": answer.refused,
+                "sources": [
+                    to_source(by_id[cid]).model_dump()
+                    for cid in answer.retrieved_ids
+                    if cid in by_id
+                ],
+                "conversation_id": conversation_id,
+                "resolved_question": question if resolution.changed else None,
+            },
+        )
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        # Without this an intermediary may buffer the whole response and deliver it at
+        # once, which looks exactly like the endpoint not streaming at all.
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

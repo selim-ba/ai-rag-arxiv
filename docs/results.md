@@ -851,6 +851,45 @@ Residuals, both under-resolution and both visible: u04 (subject absent rather th
 pronominal) and u09 (resolved "they" to "the parameters", vaguer than the pronoun it
 replaced - a rewrite can fail by losing specificity, not only by not happening).
 
+### Streaming: markers on the wire, ids in the final event
+
+`resolve_citations` maps `[P1]` to the arXiv id of the passage it points at, and it needs
+the finished text. Three ways to stream around that:
+
+1. **stream the markers, resolve in a terminal event** - chosen;
+2. buffer output at marker boundaries;
+3. give the model real arXiv ids so no resolution is needed.
+
+Option 3 is out on evidence: an early version invented `2606.09985` for a paper numbered
+`2506.09985`, which is why markers exist at all.
+
+Option 2 looked reasonable until the first live stream. A single citation arrives as four
+frames:
+
+    " ["   "P"   "3"   "]."
+
+and a double citation as seven, including `"]["` - one marker closing and the next opening
+inside a single token. Boundary buffering would have to hold output across four-frame
+spans, detect a boundary mid-token, and treat `][` as both a close and an open. Option 1
+needs none of it: `assemble_answer` runs once on the joined text, so the streamed and
+non-streamed paths execute the *same* pure function on the *same* string. "Streaming is a
+delivery change, not a different answer" is therefore a tested claim rather than an
+intention.
+
+Retrieval runs before the stream opens, so a retrieval failure is still an HTTP error;
+once bytes are on the wire the status code has been sent and a generation failure has to
+be reported in-band, as an `error` frame carrying the partial text.
+
+Not routed through the agent. The router and grader run before generation, so on the agent
+path they would arrive as one silent pause before the first token - worse than not
+streaming. `event: step` frames driven by `graph.stream` are the way to do it, and are not
+built.
+
+Known and unfixed: roughly 130 frames for a 90-word answer, each carrying about five bytes
+of text inside forty bytes of protocol. Batching into ~50 ms windows would cut that by an
+order of magnitude with no visible change in smoothness - a performance change with no
+measurement behind it, so it is written down rather than built.
+
 ### What this rules in and out
 
 - **Rewrite-and-retry**: measured at 0 rescues from 5 chances. Kept in the codebase,

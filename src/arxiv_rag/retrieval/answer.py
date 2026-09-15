@@ -23,6 +23,7 @@ Three things this module has to get right, in order of how much they matter:
 
 import logging
 import re
+from collections.abc import Iterator
 from time import perf_counter
 
 from openai import OpenAI
@@ -276,8 +277,26 @@ def generate_answer(question: str, hits: list[SearchHit], settings: Settings) ->
         temperature=0,
     )
     generate_ms = (perf_counter() - started) * 1000
-
     raw = response.choices[0].message.content or ""
+    return assemble_answer(question, hits, raw, generate_ms)
+
+
+def assemble_answer(
+    question: str, hits: list[SearchHit], raw: str, generate_ms: float = 0.0
+) -> Answer:
+    """Turn raw model output into an ``Answer``. Pure.
+
+    Factored out so the streaming and non-streaming paths share it exactly. Streaming is a
+    *delivery* change: the same text, arriving in pieces. Everything that makes an answer
+    trustworthy - resolving ``[P1]`` markers to real arXiv ids, extracting citations,
+    detecting a refusal - happens here, once, on the complete text.
+
+    That is also why streaming cannot resolve citations as it goes. ``resolve_citations``
+    maps a marker to the id of the passage it points at, and the client sees markers until
+    the answer is finished. A streaming endpoint that wanted resolved ids mid-stream would
+    have to guess, and guessing arXiv ids is the bug ``[P1]`` markers exist to prevent -
+    measured, an early version invented ``2606.09985`` for a paper numbered ``2506.09985``.
+    """
     text = resolve_citations(raw, hits)
     return Answer(
         question=question,
@@ -287,6 +306,37 @@ def generate_answer(question: str, hits: list[SearchHit], settings: Settings) ->
         retrieved_ids=[hit.chunk.chunk_id for hit in hits],
         generate_ms=generate_ms,
     )
+
+
+def stream_generate(question: str, hits: list[SearchHit], settings: Settings) -> Iterator[str]:
+    """Yield the answer in pieces, exactly as the model produces them.
+
+    The pieces carry ``[P1]`` markers, not arXiv ids - see ``assemble_answer``. The caller
+    accumulates them and calls ``assemble_answer`` on the whole thing, so the streamed and
+    non-streamed paths produce identical citations from identical text.
+
+    Synchronous on purpose. The OpenAI client's streaming iterator blocks, and FastAPI runs
+    a sync generator in a threadpool; wrapping it in ``async`` would stall the event loop
+    for every other request, which is the failure the plain ``def`` on ``ask`` avoids.
+    """
+    if not hits:
+        yield f"{REFUSAL_TOKEN} nothing was retrieved for this question."
+        return
+
+    context = format_context(hits)
+    stream = _client(settings).chat.completions.create(
+        model=settings.llm_model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"Passages:\n{context}\n\nQuestion: {question}"},
+        ],
+        temperature=0,
+        stream=True,
+    )
+    for chunk in stream:
+        piece = chunk.choices[0].delta.content if chunk.choices else None
+        if piece:
+            yield piece
 
 
 def _client(settings: Settings) -> OpenAI:

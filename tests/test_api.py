@@ -6,6 +6,8 @@ can be tested for what it actually does - translate HTTP to a library call and b
 without an index, an API key, or a network call.
 """
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -352,3 +354,115 @@ def test_an_unknown_conversation_id_starts_fresh(client, monkeypatch):
     ).json()
     assert body["conversation_id"] == "not-a-real-id"
     assert body["resolved_question"] is None
+
+
+# -- Stage 5: SSE streaming -------------------------------------------------------------
+
+
+def parse_sse(body: str) -> list[tuple[str, dict]]:
+    """Frames as (event, payload). Also asserts the wire format is well formed."""
+    frames = []
+    for block in body.split("\n\n"):
+        if not block.strip():
+            continue
+        lines = block.split("\n")
+        assert lines[0].startswith("event: "), f"malformed frame: {block!r}"
+        assert lines[1].startswith("data: "), f"malformed frame: {block!r}"
+        assert len(lines) == 2, "a newline inside data: would split one event into two"
+        frames.append((lines[0][7:], json.loads(lines[1][6:])))
+    return frames
+
+
+@pytest.fixture
+def fake_stream(monkeypatch):
+    """Generation, in pieces, with a passage marker split across two of them."""
+    pieces = ["PlaNet plans ", "with CEM [P", "1]."]
+    monkeypatch.setattr(api, "stream_generate", lambda q, h, s: iter(pieces))
+    return pieces
+
+
+def test_tokens_then_done(client, fake_stream):
+    body = client.post("/ask/stream", json={"question": "does PlaNet plan?"}).text
+    frames = parse_sse(body)
+    assert [e for e, _ in frames] == ["token", "token", "token", "done"]
+
+
+def test_the_stream_carries_markers_and_done_carries_ids(client, fake_stream):
+    """Option 1, in one assertion. `[P1]` goes out on the wire because resolving it needs
+    the finished text; the resolved id arrives in `done`."""
+    frames = parse_sse(client.post("/ask/stream", json={"question": "does PlaNet plan?"}).text)
+    streamed = "".join(p["text"] for e, p in frames if e == "token")
+    done = next(p for e, p in frames if e == "done")
+    assert "[P1]" in streamed
+    assert done["citations"] == ["1811.04551"]
+    assert "[1811.04551]" in done["answer"]
+
+
+def test_streamed_and_non_streamed_citations_are_identical(client, monkeypatch, fake_stream):
+    """The test that matters: streaming is a delivery change, not a different answer."""
+    frames = parse_sse(client.post("/ask/stream", json={"question": "does PlaNet plan?"}).text)
+    streamed = next(p for e, p in frames if e == "done")
+
+    raw = "".join(fake_stream)
+    monkeypatch.setattr(
+        api,
+        "answer_question",
+        lambda q, r, s, k=None, chunk_filter=None: api.assemble_answer(
+            q, [SearchHit(c, 1.0) for c in CHUNKS], raw
+        ),
+    )
+    plain = client.post("/ask", json={"question": "does PlaNet plan?"}).json()
+    assert streamed["citations"] == plain["citations"]
+    assert streamed["answer"] == plain["answer"]
+
+
+def test_a_marker_split_across_pieces_still_resolves(client, fake_stream):
+    """`[P` and `1]` arrive in different frames. Resolution happens on the joined text, so
+    this works - and it is exactly what a buffering implementation gets wrong."""
+    frames = parse_sse(client.post("/ask/stream", json={"question": "does PlaNet plan?"}).text)
+    assert next(p for e, p in frames if e == "done")["citations"] == ["1811.04551"]
+
+
+def test_a_failure_mid_stream_becomes_an_error_frame(client, monkeypatch):
+    """Once bytes are on the wire the status code is already sent, so the failure cannot be
+    a 5xx. It is reported in-band, with whatever was produced."""
+
+    def exploding(question, hits, settings):
+        yield "PlaNet plans "
+        raise RuntimeError("upstream died")
+
+    monkeypatch.setattr(api, "stream_generate", exploding)
+    frames = parse_sse(client.post("/ask/stream", json={"question": "does PlaNet plan?"}).text)
+    assert [e for e, _ in frames] == ["token", "error"]
+    assert frames[-1][1]["partial"] == "PlaNet plans "
+
+
+def test_streaming_joins_the_conversation(client, fake_stream):
+    body = client.post("/ask/stream", json={"question": "does PlaNet plan?"}).text
+    done = next(p for e, p in parse_sse(body) if e == "done")
+    assert done["conversation_id"]
+
+
+def test_a_streamed_turn_is_remembered(client, fake_stream, monkeypatch):
+    seen = {}
+    first = next(
+        p
+        for e, p in parse_sse(client.post("/ask/stream", json={"question": "first?"}).text)
+        if e == "done"
+    )
+    monkeypatch.setattr(
+        api,
+        "resolve_followup",
+        lambda history, q, s: seen.update(history=history) or fake_resolution(False, q),
+    )
+    client.post(
+        "/ask/stream",
+        json={"question": "and?", "conversation_id": first["conversation_id"]},
+    )
+    assert [t.question for t in seen["history"]] == ["first?"]
+
+
+def test_the_content_type_is_an_event_stream(client, fake_stream):
+    r = client.post("/ask/stream", json={"question": "does PlaNet plan?"})
+    assert r.headers["content-type"].startswith("text/event-stream")
+    assert r.headers["x-accel-buffering"] == "no"
