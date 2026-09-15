@@ -23,7 +23,7 @@ genuinely complementary chunks still each have to be found.
 
 
 def flatten(gold_groups: list[list[str]]) -> list[str]:
-    """Every acceptable gold chunk, ignoring the grouping. Given to you."""
+    """Every acceptable gold chunk, ignoring the grouping."""
     return [chunk_id for group in gold_groups for chunk_id in group]
 
 
@@ -77,5 +77,5 @@ def reciprocal_rank(retrieved_ids: list[str], gold_groups: list[list[str]]) -> f
 
 
 def mean(values: list[float]) -> float:
-    """Average, with an empty list giving 0.0 rather than an exception. Given to you."""
+    """Average, with an empty list giving 0.0 rather than an exception."""
     return sum(values) / len(values) if values else 0.0

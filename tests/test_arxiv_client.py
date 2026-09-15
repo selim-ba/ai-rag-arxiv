@@ -1,7 +1,4 @@
-"""Stage 1 — parsing the arXiv Atom feed. No network: the fixture is a real response.
-
-These fail until you implement ``parse_atom_feed``.
-"""
+"""Stage 1 - parsing the arXiv Atom feed. No network: the fixture is a real response."""
 
 from datetime import date
 

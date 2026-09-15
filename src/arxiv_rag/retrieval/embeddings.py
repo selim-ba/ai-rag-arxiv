@@ -87,7 +87,7 @@ class EmbeddingCache:
 
 @lru_cache(maxsize=8)
 def get_cache(directory: Path) -> EmbeddingCache:
-    """One cache object per directory per process. Given to you.
+    """One cache object per directory per process.
 
     The 28MB parse happens on first use and never again. Every caller must go through
     this rather than constructing ``EmbeddingCache`` directly, or the saving is split
@@ -152,7 +152,7 @@ def embed_texts(texts: list[str], settings: Settings) -> list[list[float]]:
 
 
 def embed_query(query: str, settings: Settings) -> list[float]:
-    """Embed a single search query. Given to you — it is just ``embed_texts`` of one."""
+    """Embed a single search query. Just ``embed_texts`` of one."""
     return embed_texts([query], settings)[0]
 
 

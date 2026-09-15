@@ -81,7 +81,6 @@ def parse_atom_feed(xml: str) -> list[Paper]:
 
 def search(query: str, limit: int = 10, delay_seconds: float = 3.0) -> list[Paper]:
     """Search arXiv and return parsed papers."""
-
     _throttle(delay_seconds)
 
     params = {
@@ -119,8 +118,3 @@ def fetch_by_ids(ids: list[str], delay_seconds: float = 3.0) -> list[Paper]:
         response.raise_for_status()
         papers.extend(parse_atom_feed(response.text))
     return papers
-
-
-def _unused_import_guard() -> None:  # pragma: no cover
-    """Keeps linters quiet about imports you will need once you implement the TODOs."""
-    _ = (feedparser, httpx, datetime)

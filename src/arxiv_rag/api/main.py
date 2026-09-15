@@ -39,7 +39,7 @@ log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load the index once at startup. Given to you.
+    """Load the index once at startup.
 
     A missing index is not a crash: the app still starts and ``/health`` still answers,
     but ``/ask`` returns 503. A container that dies on startup because a volume was not
@@ -100,7 +100,7 @@ app = FastAPI(
 
 
 def get_retriever(request: Request) -> Retriever:
-    """Dependency: the configured retriever, or 503. Given to you.
+    """Dependency: the configured retriever, or 503.
 
     Going through a dependency rather than reading ``app.state`` inline is what lets the
     tests swap in a fake retriever with ``app.dependency_overrides``, without an index,

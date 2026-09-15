@@ -102,7 +102,7 @@ class ChunkStore:
 
 
 def load_chunks(chunks_dir: Path) -> list[Chunk]:
-    """Read every chunk from ``data/chunks/*.jsonl``. Given to you."""
+    """Read every chunk from ``data/chunks/*.jsonl``."""
     chunks: list[Chunk] = []
     for path in sorted(chunks_dir.glob("*.jsonl")):
         for line in path.read_text().splitlines():

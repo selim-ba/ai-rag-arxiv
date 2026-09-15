@@ -85,7 +85,7 @@ def initial_state(
     chunk_filter: ChunkFilter | None = None,
     k: int | None = None,
 ) -> AgentState:
-    """A fresh state for one question. Given to you.
+    """A fresh state for one question.
 
     Every key a node might read is initialised here rather than left absent, so a node can
     do ``state["attempts"]`` without a guard. ``query`` starts as the question and only

@@ -1,8 +1,4 @@
-"""Stage 1 — the chunker. This file is the spec; make it green.
-
-``heading_of`` and ``count_tokens`` are given, so their tests pass already. The rest
-fail until you implement them.
-"""
+"""Stage 1 - the chunker. Section splitting, token counting, and overlap."""
 
 import pytest
 

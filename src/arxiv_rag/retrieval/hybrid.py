@@ -49,7 +49,7 @@ class Retriever(Protocol):
 
 
 class DenseRetriever:
-    """Embed the query, then search the vector store. Given to you.
+    """Embed the query, then search the vector store.
 
     ``embed`` is injectable so tests can run without an API key, and so Stage 4 can pass
     a rewritten query through the same path.

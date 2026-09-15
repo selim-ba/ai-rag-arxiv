@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 
 def make_retrieve_node(retriever: Retriever, settings: Settings):
-    """Build the retrieve node. Given to you - read it as the worked example.
+    """Build the retrieve node.
 
     Returns a *closure* over the retriever rather than a bare function, because LangGraph
     calls nodes with the state and nothing else. Dependencies have to be bound at graph
@@ -75,7 +75,7 @@ def make_generate_node(settings: Settings):
 
 
 def make_grade_node(grader: Grader):
-    """Build the grade node. Given to you.
+    """Build the grade node.
 
     Takes a *Grader instance* rather than settings, for the same reason the retrieve node
     takes a retriever: the test suite has to be able to substitute a grader that returns a
@@ -99,7 +99,7 @@ def make_grade_node(grader: Grader):
 
 
 def make_rewrite_node(settings: Settings):
-    """Build the rewrite node. Given to you.
+    """Build the rewrite node.
 
     **This node owns the counter.** `attempts` is incremented here and nowhere else,
     because this is the node whose existence causes another lap: every increment

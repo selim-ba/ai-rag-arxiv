@@ -1,4 +1,4 @@
-"""Domain models. Given to you — this is the shape everything downstream expects.
+"""Domain models. The shape everything downstream expects.
 
 Read these before writing any Stage 1 code. The ``Chunk`` model in particular is the
 contract between ingestion and retrieval: whatever metadata is not on a chunk here is

@@ -43,7 +43,7 @@ def percentile(values: list[float], p: float) -> float:
 
 
 def summarise(values: list[float]) -> dict[str, float]:
-    """p50, p95 and max, rounded to a tenth of a millisecond. Given to you.
+    """p50, p95 and max, rounded to a tenth of a millisecond.
 
     ``max`` is included because with n=40 it is the honest companion to p95: if they are
     far apart, one query is pathological and worth looking at by name rather than

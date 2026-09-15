@@ -104,7 +104,7 @@ def fuse_hits(
 ) -> list:
     """``reciprocal_rank_fusion`` over ``SearchHit`` lists, returning ``SearchHit``s.
 
-    Given to you. The returned hits carry the **fused score**, not the original dense or
+    The returned hits carry the **fused score**, not the original dense or
     BM25 score - those were on incomparable scales, which is the whole reason for fusing
     ranks. Do not read an RRF score as a similarity; it only means something relative to
     other RRF scores from the same fusion.
@@ -125,7 +125,7 @@ def fuse_hits(
 def _rrf_scores(
     rankings: list[list[str]], k: int = DEFAULT_K, weights: list[float] | None = None
 ) -> dict[str, float]:
-    """The raw scores behind the fused ordering. Given to you — useful for debugging
+    """The raw scores behind the fused ordering. Useful for debugging
     why one chunk beat another."""
     if weights is None:
         weights = [1.0] * len(rankings)

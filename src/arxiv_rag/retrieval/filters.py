@@ -66,11 +66,11 @@ class ChunkFilter:
 
     @property
     def is_noop(self) -> bool:
-        """True when this filter constrains nothing. Given to you."""
+        """True when this filter constrains nothing."""
         return self.arxiv_ids is None and self.sections is None and not self.exclude_arxiv_ids
 
     def describe(self) -> str:
-        """One line for logs and eval rows. Given to you."""
+        """One line for logs and eval rows."""
         if self.is_noop:
             return "no filter"
         parts = []
@@ -86,7 +86,7 @@ class ChunkFilter:
 def allowed_indices(chunks: list[Chunk], chunk_filter: ChunkFilter | None) -> set[int] | None:
     """Positions in ``chunks`` the filter permits, or ``None`` for "everything".
 
-    Given to you. ``None`` rather than "all indices" is the point: it lets each retriever
+    ``None`` rather than "all indices" is the point: it lets each retriever
     skip the masking work entirely on the common unfiltered path, instead of building and
     intersecting an 874-element set on every query that does not need one.
     """

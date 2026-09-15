@@ -93,7 +93,7 @@ class RouteDecision(BaseModel):
 
 
 def build_router_prompt(papers: list[IndexedPaper]) -> str:
-    """Inject the corpus into the prompt. Given to you.
+    """Inject the corpus into the prompt.
 
     Roughly a thousand tokens for 49 papers, paid on every routed request. That is the
     price of being able to tell "the value is missing" from "the paper is missing", which
@@ -158,7 +158,7 @@ def route_question(
     papers: list[IndexedPaper],
     settings: Settings,
 ) -> RouteDecision:
-    """Classify one question. Given to you.
+    """Classify one question.
 
     Fails OPEN to ``retrieve``: a router that cannot answer must not stop the request, and
     ``retrieve`` is the behaviour the system had before a router existed. Same reasoning as

@@ -72,7 +72,7 @@ def list_indexed_papers(store: ChunkStore) -> list[IndexedPaper]:
 
 
 def indexed_ids(store: ChunkStore) -> frozenset[str]:
-    """Just the ids. Given to you - used by the two tools below."""
+    """Just the ids."""
     return frozenset(chunk.arxiv_id for chunk in store.chunks)
 
 

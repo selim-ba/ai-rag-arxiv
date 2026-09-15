@@ -154,7 +154,7 @@ def run_agent(
     chunk_filter: ChunkFilter | None = None,
     k: int | None = None,
 ) -> Answer:
-    """Invoke a compiled graph for one question and hand back the Answer. Given to you.
+    """Invoke a compiled graph for one question and hand back the Answer.
 
     The adapter that keeps everything upstream ignorant of the graph: ``scripts/eval.py``
     and ``/ask`` care about an ``Answer``, not about ``AgentState``. Same reasoning as the
