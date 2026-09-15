@@ -705,6 +705,53 @@ and was demoted to `retrieve` rather than becoming a filter that silently constr
 nothing. Seventh place in this codebase where a model's output is checked rather than
 trusted.
 
+### The filter ceiling: the biggest headroom in the system, and the router cannot reach it
+
+The `filtered` route rests on an assumption - that restricting retrieval to named papers
+improves it. Measured directly, with an oracle: restrict each question to the paper its
+own gold chunk lives in. A router that is always right, which no real router can beat. No
+model, no cost, fully deterministic.
+
+| | unfiltered | oracle filter |
+|---|---|---|
+| hit@1 | 0.353 | **0.529** |
+| hit@5 | 0.676 | **0.824** |
+| recall@5 | 0.578 | **0.725** |
+| MRR@5 | 0.473 | **0.663** |
+
+Nothing is lost (0 questions), as construction implies: narrowing the pool can only remove
+competitors. **+0.148 hit@5 is larger than every improvement this project has achieved so
+far combined**, and 0.824 sits above the 0.735 union ceiling, because that ceiling measures
+fusing two retrievers *unfiltered* - narrowing the candidate pool is a different axis.
+
+The five rescued questions - q026, q028, q029, q033, q037 - are all drawn from the nine
+that both dense and BM25 miss at k=5. Filtering rescues five of the nine hardest.
+
+**And the router captures none of it.** Not one of the five names a paper:
+
+    q026  "Earlier world models needed their regulariser retuned per environment..."
+    q028  "the image and video JEPA models"
+    q029  "the two JEPA papers"
+    q033  "Two recent JEPA papers attack latent collapse..."
+    q037  "In the ablation, which loss terms..."          - names nothing at all
+
+Four of the five need two or three papers, not one. The `filtered` route fires only when a
+user scopes a question explicitly, and the questions that benefit from scoping are exactly
+the ones where the user does not know which paper holds the answer. The oracle knows; the
+person asking does not.
+
+**So the `filtered` route is a UX feature, not a retrieval improvement.** It honours an
+explicit constraint correctly and buys no measurable quality. The router's value is
+`catalog` - questions no passage can answer - and the measured discipline of
+`verify_route`.
+
+**What the ceiling actually argues for is a retrieval change, not an agent change.** The
+gain is available to a system that *discovers* the two or three relevant papers from the
+question and then retrieves within them - hierarchical or two-stage retrieval, where a
+coarse pass over papers precedes a fine pass over chunks. That is a Stage 5+ retrieval
+component, and it is now the highest-value item on the list by a wide margin: +0.148 hit@5
+against a system whose answer correctness is bounded by retrieval.
+
 ### What this rules in and out
 
 - **Rewrite-and-retry**: measured at 0 rescues from 5 chances. Kept in the codebase,

@@ -20,6 +20,7 @@ from arxiv_rag.evaluation.metrics import flatten, hit_at_k, mean, recall_at_k, r
 from arxiv_rag.evaluation.timing import summarise
 from arxiv_rag.retrieval.bm25 import BM25Index
 from arxiv_rag.retrieval.embeddings import embed_query
+from arxiv_rag.retrieval.filters import ChunkFilter
 from arxiv_rag.retrieval.hybrid import DenseRetriever, HybridRetriever
 from arxiv_rag.retrieval.store import ChunkStore
 
@@ -80,6 +81,12 @@ def score(name: str, retrieve, questions: list[dict], k: int) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ranks", action="store_true", help="per-question gold rank")
+    parser.add_argument(
+        "--filter-ceiling",
+        action="store_true",
+        help="what perfect metadata filtering could buy: restrict each question to its own "
+        "gold paper and re-measure. An oracle router, no model, no cost",
+    )
     parser.add_argument(
         "--split",
         default="all",
@@ -234,6 +241,58 @@ def main() -> None:
             f"{r['name']:<14} {r['hit@1']:>7.3f} {r['hit@5']:>7.3f} {r['recall@5']:>9.3f} "
             f"{r['mrr']:>7.3f} {r['p50']:>8.1f} {r['p95']:>8.1f}"
         )
+
+    if args.filter_ceiling:
+        # The question the `filtered` route rests on: what could ANY filter buy?
+        #
+        # Each question is restricted to the paper its gold chunk lives in - an oracle
+        # router that is always right, which no real router can beat. If this ceiling sits
+        # on top of the unfiltered number, metadata filtering cannot help here whoever
+        # chooses the filter, and the `filtered` route is architecture without benefit.
+        # Deterministic and free: no model is involved in picking the filter.
+        base = next(r for r in results if r["name"].startswith(f"hybrid d={settings.fusion_depth}"))
+        oracle = HybridRetriever(
+            [dense_retriever, bm25],
+            depth=settings.fusion_depth,
+            rrf_k=settings.rrf_k,
+            weights=settings.fusion_weight_list,
+        )
+        rows = []
+        for q in questions:
+            gold_papers = {cid.split("::")[0] for cid in flatten(q["gold_chunk_ids"])}
+            hits = oracle.search(
+                q["question"], k=DEEP_K, chunk_filter=ChunkFilter(arxiv_ids=frozenset(gold_papers))
+            )
+            ids = [h.chunk.chunk_id for h in hits]
+            rows.append(
+                {
+                    "id": q["id"],
+                    "papers": len(gold_papers),
+                    "hit@1": hit_at_k(ids, q["gold_chunk_ids"], 1),
+                    "hit@5": hit_at_k(ids, q["gold_chunk_ids"], k),
+                    "recall@5": recall_at_k(ids, q["gold_chunk_ids"], k),
+                    "rr": reciprocal_rank(ids, q["gold_chunk_ids"]),
+                }
+            )
+        print(f"\nFILTER CEILING   (oracle filter = the gold chunk's own paper, n={len(rows)})")
+        print(f"{'':16} {'hit@1':>7} {'hit@5':>7} {'recall@5':>9} {'MRR':>7}")
+        print(
+            f"{'unfiltered':16} {base['hit@1']:>7.3f} {base['hit@5']:>7.3f} "
+            f"{base['recall@5']:>9.3f} {base['mrr']:>7.3f}"
+        )
+        print(
+            f"{'oracle filter':16} {mean([float(r['hit@1']) for r in rows]):>7.3f} "
+            f"{mean([float(r['hit@5']) for r in rows]):>7.3f} "
+            f"{mean([r['recall@5'] for r in rows]):>9.3f} "
+            f"{mean([r['rr'] for r in rows]):>7.3f}"
+        )
+        by_id = {row["id"]: row for row in base["rows"]}
+        rescued = [r["id"] for r in rows if r["hit@5"] and not by_id[r["id"]]["hit@5"]]
+        lost = [r["id"] for r in rows if not r["hit@5"] and by_id[r["id"]]["hit@5"]]
+        print(f"\n  rescued by filtering   {len(rescued)}  {rescued}")
+        print(f"  lost to filtering      {len(lost)}  {lost}")
+        multi = [r["id"] for r in rows if r["papers"] > 1]
+        print(f"  questions whose gold spans >1 paper   {len(multi)}  {multi}")
 
     if grid_rows:
         depth = args.grid_depth if args.grid_depth is not None else settings.fusion_depth
