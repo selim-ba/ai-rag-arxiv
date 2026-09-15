@@ -43,8 +43,17 @@ def _throttle(delay_seconds: float) -> None:
 
 
 def normalise_arxiv_id(raw_id: str) -> str:
-    """'http://arxiv.org/abs/2005.11401v4' -> '2005.11401'."""
-    tail = raw_id.rstrip("/").split("/abs/")[-1]
+    """'http://arxiv.org/abs/2005.11401v4' -> '2005.11401'.
+
+    Also strips a leading ``arXiv:`` prefix, because that is the spelling this codebase
+    itself emits: ``format_context`` renders every passage header as
+    ``[P1] arXiv:2404.08471 | title | Section: ...``. A model reading that context and
+    then calling a tool with a paper id will write it back the way it just saw it, and an
+    id that fails to normalise silently becomes an "unknown paper".
+    """
+    tail = raw_id.strip().rstrip("/").split("/abs/")[-1]
+    if tail.lower().startswith("arxiv:"):
+        tail = tail[len("arxiv:") :]
     return _VERSION_SUFFIX_RE.sub("", tail)
 
 

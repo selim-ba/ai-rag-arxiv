@@ -59,3 +59,21 @@ def test_categories(arxiv_atom_xml):
 def test_empty_feed_returns_empty_list():
     empty = '<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>'
     assert parse_atom_feed(empty) == []
+
+
+def test_normalise_strips_the_arxiv_prefix():
+    """The spelling this codebase emits. `format_context` renders every passage header as
+    `[P1] arXiv:2404.08471 | title`, so a model calling a tool with a paper id writes it
+    back that way - and an id that fails to normalise silently becomes an unknown paper.
+    """
+    assert normalise_arxiv_id("arXiv:2404.08471v2") == "2404.08471"
+    assert normalise_arxiv_id("ARXIV:1912.01603") == "1912.01603"
+
+
+def test_normalise_is_idempotent_on_a_bare_id():
+    assert normalise_arxiv_id("2404.08471") == "2404.08471"
+    assert normalise_arxiv_id(normalise_arxiv_id("arXiv:2404.08471v2")) == "2404.08471"
+
+
+def test_normalise_tolerates_surrounding_whitespace():
+    assert normalise_arxiv_id("  2404.08471 ") == "2404.08471"
