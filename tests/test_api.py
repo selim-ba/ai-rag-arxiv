@@ -257,3 +257,98 @@ def test_timings_are_reported(client, monkeypatch):
     monkeypatch.setattr(api, "run_agent", fake_run_agent)
     body = client.post("/ask", json={"question": "does PlaNet plan?", "use_agent": True}).json()
     assert body["retrieve_ms"] == 3.5 and body["generate_ms"] == 900.0
+
+
+# -- Stage 5: conversations -------------------------------------------------------------
+
+
+def fake_resolution(changed, resolved):
+    from arxiv_rag.agent.followup import Resolution
+
+    return Resolution(changed=changed, resolved=resolved, reason="test")
+
+
+def test_a_first_turn_gets_a_conversation_id(client, monkeypatch):
+    monkeypatch.setattr(api, "answer_question", fake_answer)
+    body = client.post("/ask", json={"question": "does PlaNet plan?"}).json()
+    assert body["conversation_id"]
+    assert body["resolved_question"] is None
+
+
+def test_a_first_turn_costs_no_resolver_call(client, monkeypatch):
+    """No history means nothing to resolve against, and that must be free."""
+    called = []
+    monkeypatch.setattr(api, "answer_question", fake_answer)
+    monkeypatch.setattr(
+        api, "resolve_followup", lambda h, q, s: called.append(q) or fake_resolution(False, q)
+    )
+    client.post("/ask", json={"question": "does PlaNet plan?"})
+    # resolve_followup is still invoked, but with empty history it returns without a model.
+    assert called == ["does PlaNet plan?"]
+
+
+def test_the_second_turn_sees_the_first(client, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(api, "answer_question", fake_answer)
+    monkeypatch.setattr(
+        api,
+        "resolve_followup",
+        lambda history, q, s: seen.update(history=history) or fake_resolution(False, q),
+    )
+    first = client.post("/ask", json={"question": "does PlaNet plan?"}).json()
+    client.post(
+        "/ask", json={"question": "and Dreamer?", "conversation_id": first["conversation_id"]}
+    )
+    assert [t.question for t in seen["history"]] == ["does PlaNet plan?"]
+
+
+def test_a_rewritten_question_is_reported(client, monkeypatch):
+    """Over-resolution is silent by nature, so the caller is shown what was answered."""
+    monkeypatch.setattr(api, "answer_question", fake_answer)
+    monkeypatch.setattr(
+        api, "resolve_followup", lambda h, q, s: fake_resolution(True, "does Dreamer plan?")
+    )
+    body = client.post("/ask", json={"question": "and Dreamer?"}).json()
+    assert body["resolved_question"] == "does Dreamer plan?"
+    assert body["question"] == "and Dreamer?"
+
+
+def test_the_resolved_question_is_what_gets_answered(client, monkeypatch):
+    asked = {}
+
+    def recording(question, retriever, settings, k=None, chunk_filter=None):
+        asked["question"] = question
+        return fake_answer(question, retriever, settings, k, chunk_filter)
+
+    monkeypatch.setattr(api, "answer_question", recording)
+    monkeypatch.setattr(
+        api, "resolve_followup", lambda h, q, s: fake_resolution(True, "does Dreamer plan?")
+    )
+    client.post("/ask", json={"question": "and Dreamer?"})
+    assert asked["question"] == "does Dreamer plan?"
+
+
+def test_history_records_what_was_asked_not_the_rewrite(client, monkeypatch):
+    """A transcript of rewritten questions drifts further from the conversation every turn."""
+    seen = {}
+    monkeypatch.setattr(api, "answer_question", fake_answer)
+    monkeypatch.setattr(
+        api,
+        "resolve_followup",
+        lambda history, q, s: (
+            seen.update(history=history)
+            or fake_resolution(True, "does Dreamer train a policy network?")
+        ),
+    )
+    first = client.post("/ask", json={"question": "and Dreamer?"}).json()
+    client.post("/ask", json={"question": "why?", "conversation_id": first["conversation_id"]})
+    assert [t.question for t in seen["history"]] == ["and Dreamer?"]
+
+
+def test_an_unknown_conversation_id_starts_fresh(client, monkeypatch):
+    monkeypatch.setattr(api, "answer_question", fake_answer)
+    body = client.post(
+        "/ask", json={"question": "does PlaNet plan?", "conversation_id": "not-a-real-id"}
+    ).json()
+    assert body["conversation_id"] == "not-a-real-id"
+    assert body["resolved_question"] is None

@@ -799,6 +799,54 @@ heterogeneous corpus, where papers differ at document level.
 Total cost of reaching this conclusion: two harness flags, one pure module, 14 tests, and
 about a tenth of a cent. No retriever was written.
 
+## Stage 5 - follow-up resolution
+
+A follow-up is a question plus a pointer into the conversation, and retrieval cannot follow
+a pointer. Resolving it into a standalone question **before** the graph means the router,
+retriever, grader and generator keep seeing exactly what they saw in Stage 4 - one
+self-contained question - so every Stage 4 measurement stays valid.
+
+`eval/followups.jsonl`: 18 cases, 13 dev / 5 test, written before the resolver existed.
+It does not assert the resolved TEXT - no resolver produces a given wording, and exact
+match on free text is unmeasurable. It asserts what the resolution must and must not
+CONTAIN. Deterministic, no evaluator, and it tests the only thing that matters: was the
+referent named, and was a self-contained question left alone.
+
+| prompt | accuracy | **over-resolved** | under-resolved |
+|---|---|---|---|
+| **as shipped** | **9/13** | **0** | 4 |
+| + an explicit three-test decision procedure | 7/13 | **2** | 4 |
+| reverted | 9/13 | 0 | 4 |
+
+Per kind: pronoun 2/4, ellipsis 2/2, answer-reference 1/3, **self-contained 4/4**.
+
+**The two failure directions are not symmetric, and the spec is built around that.** An
+under-resolved question retrieves badly and the failure is visible in the answer. An
+over-resolved one retrieves well, reads well, and answers a question nobody asked. So
+every failure path in `verify_resolution` returns the follow-up unchanged, and the six
+negatives in the spec exist to catch the silent direction.
+
+The second prompt added a decision procedure - "a question with no subject at all is not
+standalone, even when it reads like a complete sentence" - and manufactured exactly the
+failure the spec was written to catch:
+
+    "Which papers do you have indexed?"   ->   "Which papers does IRIS have indexed?"
+    "What is a recurrent state-space model?"  ->  "...used for in I-JEPA?"
+
+The first is both nonsense and a catalog question dragged toward retrieval. Reverted.
+
+**A spec that depends on the system's own output is only as valid as that output.**
+`eval/routes.jsonl` is immune - a route depends only on the question. Four follow-up cases
+depend on the previous ANSWER, and one of them (u10, an ordinal into a list the answer
+produced) turned out to be unmeasurable: the turn-1 answer names PhyLatent and "No Gaussian
+Required" rather than the reference answer's Sub-JEPA and Var-JEPA, because that question
+is q033, a known retrieval miss. The resolver's output was correct for the conversation it
+saw. The case measures retrieval wearing a resolution label.
+
+Residuals, all under-resolution and all visible: u04 (subject absent rather than
+pronominal), u09 (resolved "they" to "the parameters" - vaguer than the pronoun), u10
+(invalid, above).
+
 ### What this rules in and out
 
 - **Rewrite-and-retry**: measured at 0 rescues from 5 chances. Kept in the codebase,

@@ -27,7 +27,9 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from arxiv_rag import __version__
+from arxiv_rag.agent.followup import Turn, resolve_followup
 from arxiv_rag.agent.graph import build_graph, run_agent
+from arxiv_rag.agent.session import SessionStore, new_conversation_id
 from arxiv_rag.config import Settings, get_settings
 from arxiv_rag.ingestion.models import Chunk
 from arxiv_rag.retrieval.answer import answer_question
@@ -82,6 +84,10 @@ async def lifespan(app: FastAPI):
     if app.state.graph is not None:
         log.info("agent graph compiled; POST /ask uses it: %s", settings.use_agent)
 
+    # One store for the process. See `agent.session` for why this is a dictionary and not
+    # a LangGraph checkpointer, and for what breaks under horizontal scaling.
+    app.state.sessions = SessionStore()
+
     app.state.store = store
     app.state.retriever = retriever
     app.state.chunks_by_id = {c.chunk_id: c for c in store.chunks} if store else {}
@@ -129,6 +135,12 @@ class AskRequest(BaseModel):
     use_agent: bool | None = Field(
         default=None, description="override PT_USE_AGENT for this request"
     )
+    # Returned by a previous call. An unknown id starts a new conversation rather than
+    # failing: ids are server-generated, so an unrecognised one is a stale client, not an
+    # attack worth a 4xx.
+    conversation_id: str | None = Field(
+        default=None, max_length=64, description="continue a conversation"
+    )
 
 
 class Source(BaseModel):
@@ -155,6 +167,13 @@ class AskResponse(BaseModel):
     trace: list[str] = Field(default_factory=list, description="agent steps; empty for pipeline")
     retrieve_ms: float = 0.0
     generate_ms: float = 0.0
+    conversation_id: str = Field(description="pass this back to ask a follow-up")
+    # Only set when the follow-up was rewritten. Reported for the same reason as `mode`:
+    # a question answered differently from the one that was typed is something the caller
+    # must be able to see, and over-resolution is silent by nature.
+    resolved_question: str | None = Field(
+        default=None, description="the standalone question actually answered, if rewritten"
+    )
 
 
 @app.get("/health")
@@ -211,15 +230,28 @@ def ask(
     # setting, and `or` would silently ignore it. Sixth place this distinction matters.
     use_agent = settings.use_agent if payload.use_agent is None else payload.use_agent
 
+    # A first turn has no history, so `resolve_followup` returns immediately without a
+    # model call. The cost of sessions is paid only from the second turn on.
+    sessions: SessionStore = app.state.sessions
+    conversation_id = payload.conversation_id or new_conversation_id()
+    history = sessions.history(payload.conversation_id)
+    resolution = resolve_followup(history, payload.question, settings)
+    question = resolution.resolved
+
     if use_agent:
-        answer = run_agent(graph, payload.question, k=payload.k)
+        answer = run_agent(graph, question, k=payload.k)
     else:
-        answer = answer_question(payload.question, retriever, settings, k=payload.k)
+        answer = answer_question(question, retriever, settings, k=payload.k)
+
+    # Record what was ASKED, not the resolution: the next turn's resolver reads this as a
+    # transcript, and a transcript of rewritten questions drifts further from the
+    # conversation with every turn.
+    sessions.append(conversation_id, Turn(question=payload.question, answer=answer.text))
 
     by_id = app.state.chunks_by_id
     sources = [to_source(by_id[cid]) for cid in answer.retrieved_ids if cid in by_id]
     return AskResponse(
-        question=answer.question,
+        question=payload.question,
         answer=answer.text,
         citations=answer.citations,
         refused=answer.refused,
@@ -228,4 +260,6 @@ def ask(
         trace=answer.trace,
         retrieve_ms=round(answer.retrieve_ms, 1),
         generate_ms=round(answer.generate_ms, 1),
+        conversation_id=conversation_id,
+        resolved_question=question if resolution.changed else None,
     )

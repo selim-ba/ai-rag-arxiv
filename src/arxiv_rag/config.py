@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     # 49-line list, which is a different skill from generating or judging.
     router_model: str = "gpt-4o-mini"
 
+    # Separable again: resolving a follow-up is a reference-tracking task over a short
+    # transcript, and it runs on every turn after the first.
+    followup_model: str = "gpt-4o-mini"
+
     # How many times the agent may rewrite the query and retrieve again before it gives
     # up and answers with whatever it has. The loop's hard cap, and the reason the agent
     # terminates even when the grader never changes its mind.
