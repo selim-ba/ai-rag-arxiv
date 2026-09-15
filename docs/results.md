@@ -583,6 +583,63 @@ evidence first.
 The residual 0.167 is one question whose correct refusal is written in prose. Any future
 work on it is formatting, not reasoning, and must be scored on `accuracy`.
 
+### The faithfulness axis cannot be validated on this eval set
+
+The three-rubric arc above ended with faithfulness at kappa −0.19 and the axis marked
+unvalidated. A fourth change was then made — `spans_overlap`, rejecting a `CONTRADICTED:`
+verdict whose two quoted spans contain one another, because nothing contradicts itself.
+Unlike the rubric edits this is **definitional**: it is true on any dataset, needs no
+labels, and would have been right before the failing cases were ever seen.
+
+It appeared to work. Then the same run was repeated with no code change at all:
+
+| run | agreement | kappa |
+|---|---|---|
+| first | 7/10 | **+0.286** |
+| repeat, identical config | 6/10 | **−0.176** |
+
+**One question moved and the sign of kappa flipped.** Every faithfulness result in this
+document — v1's −0.154, v2 and v3's −0.190, v4's +0.286 — sits inside that band. The
+judge is not run-to-run stable (Stage 2 measured faithfulness moving 0.933–0.967 at
+`temperature=0` with no change), and ten labels cannot resolve a one-question swing.
+
+**So the axis is closed, not merely unvalidated.** Further work on it is unfalsifiable
+here: no change can be distinguished from noise without roughly 40 labels and a judge that
+returns the same verdict twice. Neither is worth building for this project. Faithfulness
+is reported as contract-compliant, human-auditable, and **not a measurement**; correctness
+(kappa +0.80, and 9/10 or 10/10 on both repeat runs) carries the answer-quality claims.
+
+`spans_overlap` is kept anyway. Its one confirmed effect is that q017 — whose "passage
+says" span contains its "answer claims" span verbatim — now fails substantiation, is
+retried, and is *counted* in `judge broke its contract` instead of appearing in the
+hand-read UNFAITHFUL list as a finding. Making a bad verdict countable is worth eight
+deterministic lines even when it moves no aggregate.
+
+### The verify node: deliberately not built
+
+Stage 4 step 4 is a verify node — re-read the generated answer against the passages and
+refuse or retry if a claim is unsupported. It is not built, and the reasons are
+measurements rather than scheduling:
+
+1. **Its stated target was an artefact.** The brief asks for `refusal_rate` 0.833 → 1.000.
+   That 0.167 is q027, whose *correct* prose refusal simply lacks the token. Two prompt
+   edits closed it and cost 18 and then 13 correct answers.
+2. **It cannot be scored.** A verify node is a faithfulness check, and faithfulness has a
+   variance band wider than any effect it could plausibly have. The alternative,
+   `accuracy`, moves in steps of 0.025 on 40 questions — one flipped question.
+3. **The failure it would target is a retrieval failure.** The clearest case, q030,
+   attributes V-JEPA 2's "1M hours of internet-scale video" to V-JEPA. Its gold chunk sits
+   at fused rank 20 (`hit@5` false) because Stage 4's fusion reweighting demoted it from
+   rank 3. The generator is reporting the passages it was given. Fixing retrieval for that
+   question is a smaller change with a metric that can see it.
+
+Building an unmeasurable component, in a project whose recurring finding is that
+unmeasured components are how it gets into trouble, would contradict the whole record
+above. Reasons to revisit: an eval set large enough to resolve answer-quality differences
+(~100 questions), or a use for verification that is not scored by a judge — refusing to
+emit an arXiv id that was not retrieved, say, which `resolve_citations` already does in
+code without a model.
+
 ### What this rules in and out
 
 - **Rewrite-and-retry**: measured at 0 rescues from 5 chances. Kept in the codebase,

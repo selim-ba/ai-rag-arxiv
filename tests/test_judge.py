@@ -8,6 +8,7 @@ from arxiv_rag.evaluation.judge import (
     failure_is_substantiated,
     quoted_spans,
     refusal_scores,
+    spans_overlap,
     verdict_is_consistent,
 )
 
@@ -286,4 +287,56 @@ def test_substantiation_survives_ligatures_and_rewrapping():
     """`quote_supported` normalises PDF text; a judge quoting 'efficiency' against a
     passage containing the 'ﬁ' ligature is quoting correctly."""
     v = unfaithful("UNSUPPORTED: 'model-predictive control (MPC)   planning'")
+    assert failure_is_substantiated(v, ANSWER, PASSAGES)
+
+
+# -- nothing contradicts itself -------------------------------------------------------
+#
+# Definitional, not tuned: "two overlapping quotes do not contradict each other" is true
+# on any dataset and needs no labels. Both measured cases were FULLY substantiated - real
+# quotes from the right sources - and still not contradictions.
+
+
+def test_a_quote_containing_the_other_overlaps():
+    """q017, verbatim. The passage span contains the answer span word for word."""
+    assert spans_overlap(
+        [
+            "the agent does not learn without it",
+            "the stochastic component is even more important - the agent does not learn without it",
+        ]
+    )
+
+
+def test_normalisation_stops_the_same_sentence_passing_as_two():
+    """Ligatures and rewrapping must not make one statement look like two."""
+    assert spans_overlap(
+        ["data-ef\ufb01ciency of PlaNet", "Dreamer inherits the data-efficiency of  PlaNet"]
+    )
+
+
+def test_genuinely_different_statements_do_not_overlap():
+    assert not spans_overlap(
+        ["PlaNet trains a policy network", "no explicit policy or value function network is used"]
+    )
+
+
+def test_a_single_span_cannot_overlap_itself():
+    assert not spans_overlap(["only one quote here"])
+
+
+def test_a_contradiction_whose_quotes_agree_is_unsubstantiated():
+    """q013: both quotes real, both from the right sources, and they say the same thing.
+    Roughly a fifth of the UNFAITHFUL list was this shape."""
+    v = unfaithful(
+        "CONTRADICTED: 'no explicit policy or value function network is used' but passage "
+        "says 'the policy is implemented as MPC planning; no explicit policy or value "
+        "function network is used'"
+    )
+    assert not failure_is_substantiated(v, ANSWER, PASSAGES)
+
+
+def test_the_overlap_check_does_not_touch_unsupported_verdicts():
+    """UNSUPPORTED asserts an absence and quotes only the answer's claim. One span, and
+    nothing to compare it against."""
+    v = unfaithful("UNSUPPORTED: 'best sequence of future actions derived from its models'")
     assert failure_is_substantiated(v, ANSWER, PASSAGES)

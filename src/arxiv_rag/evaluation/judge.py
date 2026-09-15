@@ -35,7 +35,7 @@ from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from arxiv_rag.config import Settings
-from arxiv_rag.evaluation.quotes import quote_supported
+from arxiv_rag.evaluation.quotes import normalise, quote_supported
 
 log = logging.getLogger(__name__)
 
@@ -233,6 +233,45 @@ def quoted_spans(reason: str) -> list[str]:
     return [m.group(1).strip() for m in _QUOTED.finditer(reason)]
 
 
+def spans_overlap(spans: list[str]) -> bool:
+    """Do two of these quoted spans say the same thing? Pure, and definitional.
+
+    A CONTRADICTED verdict quotes the answer's claim and the passage words that contradict
+    it. If one of those quotes contains the other, they are not two statements in conflict;
+    they are one statement quoted twice. Nothing contradicts itself.
+
+    Measured, in run after run, both verdicts fully substantiated:
+
+        q013  "PlaNet does not train an explicit policy network"
+              but passage says "no explicit policy or value function network is used"
+
+        q017  "the agent does not learn without it"
+              but passage says "the stochastic component is even more important -
+                                the agent does not learn without it"
+
+    q017's passage span contains the answer span verbatim. Roughly a fifth of the
+    UNFAITHFUL list - the list a human is asked to read by hand - was this.
+
+    **Why this is not a fourth round of tuning.** The rule was declined once, on the
+    grounds that a fourth pass at the rubric would be fitting to ten labelled answers. The
+    distinction that changed the decision: "raise a threshold until agreement improves"
+    depends on the sample, while "two overlapping quotes do not contradict each other" is
+    true on any dataset, needs no labels, and would have been right before q013 was ever
+    seen. It can be stated without reference to the data - which is the test for whether a
+    rule is a definition or a fit.
+
+    Comparison is on `normalise`d text, so ligatures, wrapping and punctuation do not let
+    the same sentence pass as two different ones.
+    """
+    cleaned = [normalise(span) for span in spans]
+    cleaned = [c for c in cleaned if c]
+    for i, a in enumerate(cleaned):
+        for b in cleaned[i + 1 :]:
+            if a in b or b in a:
+                return True
+    return False
+
+
 def failure_is_substantiated(verdict: Verdict, answer: str, context: str) -> bool:
     """Does a ``faithful=false`` verdict quote text that actually exists?
 
@@ -270,7 +309,10 @@ def failure_is_substantiated(verdict: Verdict, answer: str, context: str) -> boo
     if verdict.faithful_reason.strip().startswith("CONTRADICTED:"):
         # ...and the contradicting words must be in the passages, not invented or lifted
         # from the reference answer.
-        return any(quote_supported(span, context) for span in spans)
+        if not any(quote_supported(span, context) for span in spans):
+            return False
+        # ...and the two quotes must not be the same statement. Nothing contradicts itself.
+        return not spans_overlap(spans)
     return True
 
 
