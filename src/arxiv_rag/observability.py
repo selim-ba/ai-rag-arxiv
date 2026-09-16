@@ -249,7 +249,11 @@ class RequestLogMiddleware:
             await send(message)
             done = message["type"] == "http.response.body" and not message.get("more_body")
             if done:
-                finish("ok" if state["status"] < 500 else "error")
+                # Three outcomes, not two: a 422 is the service working correctly and a
+                # 503 is not, and `outcome == "ok"` has to mean something for a success
+                # rate grepped out of these lines to be worth reading.
+                status = state["status"]
+                finish("ok" if status < 400 else "client_error" if status < 500 else "error")
 
         try:
             await self.app(scope, receive, send_wrapper)

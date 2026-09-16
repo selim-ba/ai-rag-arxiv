@@ -32,6 +32,7 @@ from arxiv_rag import __version__
 from arxiv_rag.agent.followup import Turn, resolve_followup
 from arxiv_rag.agent.graph import build_graph, run_agent
 from arxiv_rag.agent.session import SessionStore, new_conversation_id
+from arxiv_rag.api.errors import classify, failure_payload, install_error_handlers
 from arxiv_rag.config import Settings, get_settings
 from arxiv_rag.ingestion.models import Chunk
 from arxiv_rag.observability import (
@@ -118,6 +119,10 @@ app = FastAPI(
 # 422 that no endpoint ever saw is exactly the kind of failure a caller reports as "it
 # returned an error" with nothing to grep for.
 app.add_middleware(RequestLogMiddleware)
+
+# Provider failures become defined statuses instead of an untyped 500. Registered
+# below the middleware, so these responses still carry an id and still log one line.
+install_error_handlers(app)
 
 
 def get_retriever(request: Request) -> Retriever:
@@ -367,18 +372,14 @@ def ask_stream(
                 pieces.append(piece)
                 yield sse("token", {"text": piece})
         except Exception as exc:  # noqa: BLE001 - the response has already started
+            # A stream cannot change its status code: 200 went out with the first byte.
+            # So the same taxonomy arrives in the frame instead, and `code` means exactly
+            # what it means on the non-streaming path - `rate_limited` is wait and repeat,
+            # `misconfigured` is stop. A client can branch on one field either way.
+            failure = classify(exc)
             log.warning("stream failed after %d pieces: %s", len(pieces), exc)
-            note(stream_error=type(exc).__name__, pieces=len(pieces))
-            yield sse(
-                "error",
-                {
-                    "detail": "generation failed",
-                    "partial": "".join(pieces),
-                    # The frame a user will paste into a bug report. Without the id it
-                    # says only that something broke, which is what the logs already say.
-                    "request_id": request_id,
-                },
-            )
+            note(stream_error=type(exc).__name__, code=failure.code, pieces=len(pieces))
+            yield sse("error", failure_payload(failure) | {"partial": "".join(pieces)})
             return
 
         # The same pure function the non-streaming path uses, on the same complete text.
