@@ -10,7 +10,6 @@ request that was never the problem.
 """
 
 import json
-import logging
 
 import httpx2 as httpx
 import pytest
@@ -25,7 +24,6 @@ from openai import (
     RateLimitError,
 )
 
-from arxiv_rag import observability as obs
 from arxiv_rag.api import main as api
 from arxiv_rag.api.errors import classify, failure_payload
 from arxiv_rag.api.main import app, get_graph, get_retriever
@@ -64,24 +62,6 @@ class FakeRetriever:
 class FakeGraph:
     def invoke(self, state):  # pragma: no cover - the pipeline path is the one under test
         raise AssertionError("FakeGraph.invoke called")
-
-
-class ListHandler(logging.Handler):
-    def __init__(self):
-        super().__init__()
-        self.lines: list[str] = []
-
-    def emit(self, record):
-        self.lines.append(record.getMessage())
-
-
-@pytest.fixture
-def lines():
-    handler = ListHandler()
-    obs.log.addHandler(handler)
-    obs.log.setLevel(logging.INFO)
-    yield handler.lines
-    obs.log.removeHandler(handler)
 
 
 @pytest.fixture

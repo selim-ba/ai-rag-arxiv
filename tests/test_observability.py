@@ -14,7 +14,6 @@ draft:
 """
 
 import json
-import logging
 import time
 from contextvars import copy_context
 
@@ -40,28 +39,6 @@ from arxiv_rag.observability import (
     start_request,
     timing_hook,
 )
-
-
-class ListHandler(logging.Handler):
-    """Collects the emitted lines. `caplog` cannot: `configure_logging` sets
-    `propagate = False` on the request logger, so its records never reach the root
-    handler pytest installs - which is the whole point of that flag."""
-
-    def __init__(self):
-        super().__init__()
-        self.lines: list[str] = []
-
-    def emit(self, record):
-        self.lines.append(record.getMessage())
-
-
-@pytest.fixture
-def lines():
-    handler = ListHandler()
-    obs.log.addHandler(handler)
-    obs.log.setLevel(logging.INFO)
-    yield handler.lines
-    obs.log.removeHandler(handler)
 
 
 class FakeRequest:

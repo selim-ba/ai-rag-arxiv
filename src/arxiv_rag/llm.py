@@ -39,7 +39,7 @@ log = logging.getLogger(__name__)
 
 @lru_cache(maxsize=8)
 def _build(api_key: str, timeout: float, max_retries: int) -> OpenAI:
-    log.info("openai client: timeout=%.0fs max_retries=%d", timeout, max_retries)
+    log.info("openai client: timeout=%gs max_retries=%d", timeout, max_retries)
     # The hooks go on the HTTP client, below the SDK's retry loop, which is the only place
     # they can see it. By the time `chat.completions.create` returns, the retries are over
     # and were never reported; the hook sees each attempt as it happens.

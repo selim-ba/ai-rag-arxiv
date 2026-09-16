@@ -13,12 +13,19 @@ objects. A log line whose documented command fails on the first run is the same 
 metric nobody checked.
 
 **Why counting retries is the point.** The OpenAI SDK retries twice with exponential
-backoff and honours `Retry-After` for up to two minutes - all of it silent. A request that
-succeeded first try and one that succeeded after two retries and a ninety-second sleep look
-identical from outside, and the second is a system in trouble. `scripts/eval.py` learned
-this the expensive way: its failure banner is what caught forty straight 403s from a
-model permission that had not propagated, and a connection drop that killed a paid run. The
-API had no equivalent.
+backoff and honours `Retry-After` for up to two minutes. A request that succeeded first try
+and one that succeeded after two retries and a ninety-second sleep look identical from
+outside, and the second is a system in trouble. `scripts/eval.py` learned this the
+expensive way: its failure banner is what caught forty straight 403s from a model
+permission that had not propagated, and a connection drop that killed a paid run. The API
+had no equivalent.
+
+An earlier version of this docstring called those retries *silent*. They are not: the SDK
+logs `Retrying request in 0.49 seconds` at INFO. They were invisible for a different
+reason - **nothing in the API ever configured logging**, so no INFO record from any library
+was ever printed. What the line below adds over the SDK's is attribution: the SDK's record
+carries no request id, no route and no total, so it cannot tell you which request paid for
+the wait or how much of the wait it was.
 
 The count comes from an httpx event hook rather than from wrapping every call site, because
 the SDK's retries happen *below* the call site - by the time `chat.completions.create`
@@ -70,6 +77,10 @@ class RequestStats:
     server_errors: int = 0  # 5xx seen
     upstream_ms: float = 0.0  # time inside provider calls
     extra: dict = field(default_factory=dict)
+    # Not reported as a field: a perf_counter origin is meaningless on its own. It is here
+    # so that anything during the request can ask how long the *caller* has been waiting,
+    # which is the only clock that matters for time-to-first-token.
+    started: float = field(default_factory=time.perf_counter)
 
     @property
     def retries(self) -> int:
@@ -122,6 +133,12 @@ def current_stats() -> RequestStats | None:
     return _current.get()
 
 
+def elapsed_ms() -> float | None:
+    """Milliseconds since this request arrived, or None outside a request."""
+    stats = _current.get()
+    return round((time.perf_counter() - stats.started) * 1000, 1) if stats else None
+
+
 def current_request_id() -> str | None:
     """The in-flight request's id, for echoing back to the caller."""
     stats = _current.get()
@@ -164,7 +181,7 @@ def note(**fields) -> None:
 
 def emit(stats: RequestStats, **fields) -> None:
     """The one line. Everything about the request, as JSON, on a single row."""
-    payload = {k: v for k, v in asdict(stats).items() if k != "extra"}
+    payload = {k: v for k, v in asdict(stats).items() if k not in ("extra", "started")}
     payload["retries"] = stats.retries
     payload |= stats.extra
     payload |= fields
@@ -221,7 +238,6 @@ class RequestLogMiddleware:
             (v.decode("latin-1") for k, v in scope["headers"] if k == self.HEADER), None
         )
         stats = start_request(safe_request_id(incoming))
-        started = time.perf_counter()
         state = {"status": 0, "emitted": False}
 
         def finish(outcome: str) -> None:
@@ -233,7 +249,7 @@ class RequestLogMiddleware:
                 method=scope.get("method", ""),
                 path=scope.get("path", ""),
                 status=state["status"],
-                duration_ms=round((time.perf_counter() - started) * 1000, 1),
+                duration_ms=round((time.perf_counter() - stats.started) * 1000, 1),
                 outcome=outcome,
             )
 

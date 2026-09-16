@@ -416,6 +416,32 @@ def test_streamed_and_non_streamed_citations_are_identical(client, monkeypatch, 
     assert streamed["answer"] == plain["answer"]
 
 
+def test_the_stream_reports_time_to_first_token(client, fake_stream, lines):
+    """The number streaming exists to lower, on the summary line. Measured from when the
+    request arrived, not from when generation began: retrieval and follow-up resolution
+    happen first and the user waits through those too.
+
+    `lines` comes after `client` in the signature deliberately - the app's lifespan calls
+    `configure_logging`, which replaces the logger's handlers and would drop this one."""
+    client.post("/ask/stream", json={"question": "does PlaNet plan?"})
+    row = json.loads(lines[0])
+    assert row["mode"] == "stream"
+    assert row["ttft_ms"] <= row["duration_ms"]
+
+
+def test_a_failed_stream_has_no_time_to_first_token(client, monkeypatch, lines):
+    """Nothing was produced, so there is no first token to time. A zero here would read as
+    an instant response in any aggregate over these lines."""
+
+    def explode(question, hits, settings):
+        raise RuntimeError("died before the first piece")
+        yield  # pragma: no cover - makes this a generator
+
+    monkeypatch.setattr(api, "stream_generate", explode)
+    client.post("/ask/stream", json={"question": "does PlaNet plan?"})
+    assert "ttft_ms" not in json.loads(lines[0])
+
+
 def test_a_marker_split_across_pieces_still_resolves(client, fake_stream):
     """`[P` and `1]` arrive in different frames. Resolution happens on the joined text, so
     this works - and it is exactly what a buffering implementation gets wrong."""

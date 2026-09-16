@@ -39,6 +39,7 @@ from arxiv_rag.observability import (
     RequestLogMiddleware,
     configure_logging,
     current_request_id,
+    elapsed_ms,
     note,
 )
 from arxiv_rag.retrieval.answer import answer_question, assemble_answer, stream_generate
@@ -369,6 +370,12 @@ def ask_stream(
         pieces: list[str] = []
         try:
             for piece in stream_generate(question, hits, settings):
+                # Time to first token, measured from when the request arrived rather than
+                # from when generation began: retrieval and follow-up resolution happen
+                # first, and the user is waiting through those too. This is the number
+                # streaming exists to lower, and the only one they feel.
+                if not pieces:
+                    note(ttft_ms=elapsed_ms())
                 pieces.append(piece)
                 yield sse("token", {"text": piece})
         except Exception as exc:  # noqa: BLE001 - the response has already started

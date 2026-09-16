@@ -49,6 +49,27 @@ curl -s localhost:8000/ask -H 'content-type: application/json' \
 `mode` and `trace` are reported rather than inferred: the agent and the plain pipeline
 return the same answers on this corpus, so without them a caller cannot tell which ran.
 
+Stream it instead, and ask a follow-up:
+
+```bash
+curl -N -s localhost:8000/ask/stream -H 'content-type: application/json' \
+  -d '{"question":"How does PlaNet search for a good action sequence?"}'
+```
+
+```
+event: token
+data: {"text":"PlaNet searches using"}
+...
+event: done
+data: {"answer":"...[1811.04551].","citations":["1811.04551"],"conversation_id":"7a0e...",
+       "sources":[...],"request_id":"cf01560e69a8"}
+```
+
+Pass `conversation_id` back and the next question may refer to the last one - "does it
+need action labels?" is resolved into a standalone question **before** retrieval sees it,
+so every component behaves exactly as it was measured. The resolver leaves a question that
+is already self-contained alone: 0 over-resolutions across 18 specified cases.
+
 **Citations cannot be fabricated.** The model cites passage markers (`[P1]`), and the
 arXiv id is substituted in code from the retrieved set. This was not a precaution — an
 early version invented `2606.09985` for a paper numbered `2506.09985`.
@@ -124,6 +145,26 @@ human-auditable signal rather than a measurement — two identical runs disagree
 to flip the sign of its agreement statistic, so no change to it is falsifiable at this
 sample size. Correctness carries the answer-quality claims.
 
+### Latency, and what happens when the provider fails
+
+| | |
+|---|---|
+| time to first token (streamed) | **657 ms** median, against 1764 ms for the whole answer |
+| retrieval | 2.4 ms p95 |
+| generation | 1250 ms p50, 1850 ms p95 |
+
+Every request emits one JSON line carrying a request id, the route, the timings, and the
+number of provider calls **and retries** - counted from an httpx hook on the shared
+client, because the SDK's two retries happen below the call site and are over by the time
+it returns. A request that succeeded first try and one that survived two retries and a
+`Retry-After` sleep used to be indistinguishable from outside.
+
+Provider failures map to defined statuses rather than an untyped 500: a rate limit becomes
+**503** with `Retry-After` (the quota is the service's, not the caller's), a timeout
+**504**, an outage **502**, and a bad key or unavailable model **500** — because that one
+is ours, and returning the upstream 401 would send a caller to fix a request that was
+never the problem.
+
 ### Things that were built, measured, and switched off
 
 * **A rewrite-and-retry loop.** Across two runs it rescued 1 question and lost 2 — both
@@ -140,7 +181,9 @@ sample size. Correctness carries the answer-quality claims.
 ```
 src/arxiv_rag/
   config.py           typed settings, validated at startup
-  api/main.py         FastAPI app; POST /ask over pipeline or agent
+  api/main.py         FastAPI app; POST /ask and /ask/stream, sessions      (Stage 5)
+  api/errors.py       provider failures -> defined statuses and codes      (Stage 5)
+  observability.py    request id, retry counting, one JSON line per request (Stage 5)
   ingestion/          arXiv -> PDF -> clean text -> chunks       (Stage 1)
   retrieval/          embeddings, BM25, fusion, filters, rerank  (Stages 2-3)
   evaluation/         metrics, LLM judge, quote verification     (Stage 2)
@@ -156,6 +199,7 @@ docs/results.md       every number above, with its method
 make retrieval-eval            # free: retrieval metrics, no LLM
 make retrieval-eval ARGS="--grid"   # sweep RRF constant and weights
 make route-eval                # router vs the routing specification
+make followup-eval             # follow-up resolution vs the follow-up specification
 make grade-eval                # the grader against known retrieval outcomes
 make eval ARGS="--agent"       # end to end, with the judge
 make score-judge               # judge agreement against blind labels

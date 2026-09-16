@@ -851,6 +851,34 @@ Residuals, both under-resolution and both visible: u04 (subject absent rather th
 pronominal) and u09 (resolved "they" to "the parameters", vaguer than the pronoun it
 replaced - a rewrite can fail by losing specificity, not only by not happening).
 
+**The held-out split, spent once, with the prompt frozen: 3/5.**
+
+| split | accuracy | over-resolved | under-resolved | Wilson 95% |
+|---|---|---|---|---|
+| dev (13) | 10/13 = 0.769 | 0 | 3 | [0.50, 0.92] |
+| test (5) | 3/5 = 0.600 | **0** | 2 | [0.23, 0.88] |
+| combined (18) | 13/18 = 0.722 | **0** | 5 | [0.49, 0.88] |
+
+Five cases cannot distinguish 0.60 from 0.77 - the intervals overlap across almost their
+whole range - so the drop is not evidence of degradation, and 0.722 is the figure to
+quote. What the split does establish is the property the specification was built to
+expose: **0 over-resolutions, now across 6 self-contained cases and both splits.** The
+asymmetry held out of sample.
+
+Both test misses are the two hardest kinds. u08 ("Which of those works best?") was not
+rewritten at all - "those" points at a set named in the turn-1 *question*, not at anything
+the answer said. u12 was rewritten to "What is the frozen evaluation protocol?": it found
+"frozen" in the previous answer and missed "attentive probing". Containment scoring calls
+that a miss, and the rule was fixed before the resolver existed, so it stays a miss - but
+it is a near-miss, and a resolver that names half the referent is not the same failure as
+one that names none.
+
+One precision about "0 over-resolved": the test is **forbidden terms**, i.e. contamination
+from the previous turn. The harness also reports that 3 of 5 questions were rewritten,
+which means one of the two self-contained questions was reworded and still passed, because
+nothing forbidden came in. The claim the number supports is "no contamination", not "left
+untouched".
+
 ### Streaming: markers on the wire, ids in the final event
 
 `resolve_citations` maps `[P1]` to the arXiv id of the passage it points at, and it needs
@@ -933,6 +961,111 @@ ten-minute default again.
 The retrieval numbers being byte-identical is the result that mattered for a change
 touching eight modules.
 
+### Time to first token: 657 ms against a 1764 ms answer
+
+Streaming was built on an argument - the user feels time-to-first-token, not total
+latency - and an argument is not a measurement. `ttft_ms` is recorded from **request
+arrival**, not from the start of generation: retrieval and follow-up resolution run first
+and the user waits through those too. Five consecutive requests, same question, warm
+embedding cache:
+
+| run | ttft_ms | duration_ms | upstream_ms |
+|---|---|---|---|
+| 1 (first after restart) | 1351.1 | 2186.2 | 975.6 |
+| 2 | 656.9 | 1784.7 | 651.2 |
+| 3 | 1115.4 | 1764.1 | 1107.3 |
+| 4 | 656.2 | 1363.5 | 651.4 |
+| 5 | 614.7 | 1284.5 | 610.1 |
+
+Median 657 ms to the first word against 1764 ms for the whole answer: **the reader waits
+37% of the request before something appears**, and the definition-of-done row ("well under
+the 1.2 s generate p50") is met at n = 5.
+
+Two readings inside the table are worth more than the median.
+
+**Run 1 spends 375 ms that runs 2-5 spend in 5.** Subtract `upstream_ms` from `ttft_ms`:
+the first request after a restart does 375 ms of work outside the provider call, the rest
+do about five. That is in-process first-request warm-up - imports, first numpy touch,
+tokenizer - and it is the same effect measured separately on `/ask`, where a cold,
+cache-missing request took 5486 ms against 1828 ms warm.
+
+**Run 3 is the provider, not us.** Its `ttft_ms` of 1115 ms tracks its `upstream_ms` of
+1107 ms exactly. Our own code contributes single-digit milliseconds to time-to-first-token;
+everything else is the model's first chunk, and it varies by a factor of two between
+consecutive identical requests. A latency budget written against the median here would be
+wrong most of the time.
+
+Caveat, and it is a large one: five samples of one question over loopback, with no network
+between client and server. This measures the server, not the experience.
+
+### Counting what the SDK does quietly
+
+The API had no equivalent of `scripts/eval.py`'s failure banner - the thing that caught
+forty straight 403s from an unpropagated model permission, and a connection drop that
+killed a paid run. A request that succeeded first try and one that succeeded after two
+retries and a ninety-second `Retry-After` sleep were indistinguishable from outside.
+
+Every request now emits one JSON line. The retry count comes from an **httpx event hook on
+the shared client**, not from wrapping the call sites, because the SDK's retries happen
+*below* `chat.completions.create` - by the time it returns they are over. The hook reads
+`x-stainless-retry-count`, which the SDK stamps on every attempt, and that header is the
+only thing at the transport layer separating a retry from a second logical call. So
+`calls` and `retries` are exact with no change to any of the eight call sites.
+
+Forcing the failure with `PT_OPENAI_TIMEOUT_SECONDS=0.001`:
+
+    {"request_id":"c49b7480437c","attempts":3,"calls":1,"retries":2,"upstream_ms":0.0,
+     "code":"upstream_timeout","status":504,"duration_ms":1808.0,"outcome":"error"}
+
+One logical call, two silent retries, 1808 ms of wall clock the caller paid for and
+nothing previously recorded.
+
+`calls` also turns out to be what makes every latency number in this document
+interpretable. A cold request embeds its query (2 calls); a repeated one reads the
+embedding from cache (1 call) and its retrieval step drops from 3301 ms to 2.5 ms. Every
+figure here was measured with a warm cache, which makes them **warm-cache latency** - and
+`calls` is the field that says which regime a line belongs to.
+
+A claim in the first version of this work was wrong and is corrected here: those retries
+were called *silent*. They are not - the SDK logs `Retrying request in 0.49 seconds` at
+INFO. They were invisible because **nothing in the API ever configured logging**, so no
+INFO record from any library was printed; `index loaded: 874 chunks` had been dropping
+since Stage 0. What the JSON line adds over the SDK's own is attribution: the SDK's record
+carries no request id, no route and no total, so it cannot say which request paid the wait
+or how much of that request the wait was.
+
+### When the provider fails
+
+The SDK retries twice and then raises. What happened next used to be an untyped 500.
+
+| upstream | returned | code |
+|---|---|---|
+| 429 rate limit | 503 | `rate_limited` |
+| timeout | 504 | `upstream_timeout` |
+| connection error | 502 | `upstream_unreachable` |
+| 500-599 | 502 | `upstream_error` |
+| 401, 403, 400 | 500 | `misconfigured` |
+
+**The upstream status is not the status returned**, and proxying the number through is
+wrong in both directions. A 429 says *the caller* is sending too fast; the quota here is
+the service's, and a well-behaved client would back off for a limit it had no part in.
+A 401 or 403 says the caller's credentials are bad; they are ours - that is exactly the
+unpropagated model permission that cost 40 calls in Stage 2, and telling a caller to fix
+its request would have sent it looking in the wrong place.
+
+Three details that each cost a test. The provider's message never reaches the response -
+upstream bodies quote organisation ids, model names and quota, and an error path is the
+least-watched place for those to start appearing. `Retry-After` is echoed only when
+upstream sends a parseable one, because a default is a guess presented as a fact and every
+client that trusted it would retry into the same wall at the same moment. And
+`APITimeoutError` subclasses `APIConnectionError`, so an `isinstance` chain in the wrong
+order reports every timeout as an unreachable host: the same symptom, a different cause,
+and a day spent looking at the wrong layer.
+
+A stream cannot change its status code - 200 left with the first byte - so the same
+taxonomy arrives in the `error` frame, where `code` means exactly what it means on the
+non-streaming path.
+
 ### What this rules in and out
 
 - **Rewrite-and-retry**: measured at 0 rescues from 5 chances. Kept in the codebase,
@@ -989,6 +1122,19 @@ works, and the action it takes when it detects a failure is aimed at the wrong f
    to the generator, faithfulness moved between 0.933 and 0.967 — a single flipped
    verdict is 3.3 points at n=30. Differences smaller than about 5 points between
    configurations are noise, not signal.
-7. **`false_refusal_rate` conflates two causes.** An over-cautious prompt and a genuine
+7. **Every latency figure here is warm-cache latency.** A first-time question also
+   pays an embedding call: measured at 5486 ms against 1828 ms for the same question
+   warm, and retrieval alone at 3301 ms against 2.5 ms. The `calls` field on each log
+   line is what distinguishes the two regimes.
+8. **`upstream_ms` undercounts, in two opposite situations.** A timeout produces no
+   response, so the httpx response hook never fires and the field reads 0.0 for the
+   failure that cost the most wall clock (1808 ms in the example above). And for a
+   streamed completion the hook fires when the response *headers* arrive, so the time
+   spent reading the body is not counted. Both are visible as a gap between
+   `upstream_ms` and `duration_ms`; neither is fixed.
+9. **Time to first token is 5 samples of one question over loopback.** No network
+   between client and server, one corpus, one model. Treat 657 ms as an order of
+   magnitude, not a p50.
+10. **`false_refusal_rate` conflates two causes.** An over-cautious prompt and a genuine
    retrieval failure that the generator handled honestly both land in the same bucket.
    q002 refused with its gold chunk at rank 102, which is arguably correct behaviour.
