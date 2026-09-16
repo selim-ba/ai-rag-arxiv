@@ -26,10 +26,10 @@ import re
 from collections.abc import Iterator
 from time import perf_counter
 
-from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from arxiv_rag.config import Settings
+from arxiv_rag.llm import get_client as _client
 from arxiv_rag.retrieval.filters import ChunkFilter
 from arxiv_rag.retrieval.hybrid import Retriever
 from arxiv_rag.retrieval.store import SearchHit
@@ -337,7 +337,3 @@ def stream_generate(question: str, hits: list[SearchHit], settings: Settings) ->
         piece = chunk.choices[0].delta.content if chunk.choices else None
         if piece:
             yield piece
-
-
-def _client(settings: Settings) -> OpenAI:
-    return OpenAI(api_key=settings.openai_api_key)

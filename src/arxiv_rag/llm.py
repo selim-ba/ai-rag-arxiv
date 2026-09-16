@@ -1,0 +1,50 @@
+"""One OpenAI client for the process, with bounds the defaults do not give it.
+
+**Why this exists, from reading the SDK rather than guessing.** `openai._constants`:
+
+    DEFAULT_TIMEOUT       = Timeout(timeout=600, connect=5.0)   # ten minutes
+    DEFAULT_MAX_RETRIES   = 2
+    INITIAL_RETRY_DELAY   = 0.5     MAX_RETRY_DELAY = 8.0
+    MAX_RETRY_AFTER_DELAY = 120
+
+Nothing in this codebase overrode either. So a single hung call could block a request for
+ten minutes, and with two retries for thirty; an agent request makes up to three calls. A
+429 carrying `Retry-After: 60` sleeps a minute inside the SDK, invisibly, twice.
+
+**The fix was not another retry layer.** The SDK already retries twice with exponential
+backoff and honours `Retry-After`; wrapping that in a loop of three would give nine
+attempts per call and solve nothing. The defect is that a slow call has no bound, so the
+bound is what gets set here.
+
+**And eight modules each built their own client.** `OpenAI()` constructs an `httpx2.Client`
+with its own connection pool, so a new client per call meant a new pool and a fresh TLS
+handshake on every model call - paid and discarded, eight places over. One cached client
+keeps the pool alive across calls and leaves one place to configure.
+
+Cached on the settings values that matter rather than on the Settings object, which is not
+hashable. Tests that build a Settings with a different timeout get a different client.
+"""
+
+import logging
+from functools import lru_cache
+
+from openai import OpenAI
+
+from arxiv_rag.config import Settings
+
+log = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=8)
+def _build(api_key: str, timeout: float, max_retries: int) -> OpenAI:
+    log.info("openai client: timeout=%.0fs max_retries=%d", timeout, max_retries)
+    return OpenAI(api_key=api_key, timeout=timeout, max_retries=max_retries)
+
+
+def get_client(settings: Settings) -> OpenAI:
+    """The shared client. Every model call in this codebase goes through here."""
+    return _build(
+        settings.openai_api_key,
+        settings.openai_timeout_seconds,
+        settings.openai_max_retries,
+    )

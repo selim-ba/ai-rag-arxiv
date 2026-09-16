@@ -34,6 +34,7 @@ from typing import Protocol
 
 from arxiv_rag.config import Settings
 from arxiv_rag.ingestion.models import Chunk
+from arxiv_rag.llm import get_client
 from arxiv_rag.retrieval.filters import ChunkFilter
 from arxiv_rag.retrieval.hybrid import Retriever
 from arxiv_rag.retrieval.store import SearchHit
@@ -197,13 +198,12 @@ class LLMListwiseReranker:
     def score(self, query: str, chunks: list[Chunk]) -> list[float]:
         if not chunks:
             return []
-        from openai import OpenAI
 
         passages = "\n\n".join(
             f"[{i}] {c.title} | {c.section}\n{c.text[: self.max_chars]}"
             for i, c in enumerate(chunks, start=1)
         )
-        client = OpenAI(api_key=self.settings.openai_api_key)
+        client = get_client(self.settings)
         response = client.chat.completions.create(
             model=self.settings.llm_model,
             messages=[

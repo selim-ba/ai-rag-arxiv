@@ -113,6 +113,17 @@ class Settings(BaseSettings):
     # (PT_USE_AGENT=true) turns it on, and /ask reports which path served the request.
     use_agent: bool = False
 
+    # The SDK's default is 600 seconds. One hung call would block a request for ten
+    # minutes, and an agent request makes up to three calls. 30s is comfortably above the
+    # measured generate p95 (1.9s) and the listwise reranker's p95 (7.8s), and far below
+    # anything a caller would wait for.
+    openai_timeout_seconds: float = Field(default=30.0, gt=0, le=600)
+
+    # The SDK's own default, set explicitly so it is visible and tunable. Retries here are
+    # exponential (0.5s -> 8s) and honour Retry-After; a hand-written loop on top would
+    # multiply rather than replace them.
+    openai_max_retries: int = Field(default=2, ge=0, le=5)
+
     log_level: str = "INFO"
 
     @property

@@ -20,9 +20,8 @@ from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import Path
 
-from openai import OpenAI
-
 from arxiv_rag.config import Settings
+from arxiv_rag.llm import get_client as _client
 
 log = logging.getLogger(__name__)
 
@@ -154,7 +153,3 @@ def embed_texts(texts: list[str], settings: Settings) -> list[list[float]]:
 def embed_query(query: str, settings: Settings) -> list[float]:
     """Embed a single search query. Just ``embed_texts`` of one."""
     return embed_texts([query], settings)[0]
-
-
-def _client(settings: Settings) -> OpenAI:
-    return OpenAI(api_key=settings.openai_api_key)

@@ -31,11 +31,11 @@ hand — that is what ``reason`` is for.
 import logging
 import re
 
-from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from arxiv_rag.config import Settings
 from arxiv_rag.evaluation.quotes import normalise, quote_supported
+from arxiv_rag.llm import get_client as _client
 
 log = logging.getLogger(__name__)
 
@@ -435,7 +435,3 @@ def _grade(messages: list[dict], settings: Settings) -> Verdict | None:
     except Exception as exc:
         log.error("judge failed to parse: %s", exc)
         return None
-
-
-def _client(settings: Settings) -> OpenAI:
-    return OpenAI(api_key=settings.openai_api_key)

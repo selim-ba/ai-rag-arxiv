@@ -890,6 +890,49 @@ of text inside forty bytes of protocol. Batching into ~50 ms windows would cut t
 order of magnitude with no visible change in smoothness - a performance change with no
 measurement behind it, so it is written down rather than built.
 
+### One client, a real timeout, and a prediction that was wrong
+
+Eight modules each constructed their own `OpenAI()` per call, and none set a timeout or a
+retry count. Reading `openai._constants` rather than guessing:
+
+    DEFAULT_TIMEOUT       = Timeout(timeout=600, connect=5.0)   # ten minutes
+    DEFAULT_MAX_RETRIES   = 2
+    INITIAL_RETRY_DELAY   = 0.5     MAX_RETRY_DELAY = 8.0
+    MAX_RETRY_AFTER_DELAY = 120
+
+So a single hung call could block a request for ten minutes; with two retries, thirty; and
+an agent request makes up to three calls. A 429 carrying `Retry-After: 60` sleeps a minute
+inside the SDK, invisibly, twice.
+
+**The defect was the absent bound, not an absent retry.** The SDK already retries twice
+with exponential backoff and honours `Retry-After`, so a hand-written loop of three on top
+would have produced nine attempts per call and fixed nothing. `openai_timeout_seconds` is
+set to 30 - comfortably above the measured generate p95 (1.9 s) and the listwise reranker's
+p95 (7.8 s), far below anything a caller waits for - and `openai_max_retries` is pinned at
+the SDK's own 2 so it is visible rather than inherited.
+
+**The connection-pooling gain was predicted and did not happen.** Every `OpenAI()` builds an
+httpx client with its own pool, so a client per call meant a fresh TLS handshake each time;
+the estimate was 100-200 ms per call.
+
+| | eight clients | one shared client |
+|---|---|---|
+| generate p50 | 1254 ms | **1250 ms** |
+| generate p95 | 1969 ms | 1850 ms |
+| hit@1 / hit@5 / recall@5 | 0.353 / 0.676 / 0.578 | **identical** |
+
+p50 moved 0.3%. The p95 and max look better and are one run at n = 40, which this document
+has spent a week declining to read as signal. **Third performance prediction of the stage,
+third settled against the guess by the harness.**
+
+What the refactor is worth is therefore what it was designed for and not what was hoped
+for: a bound on a call that had none, and one place to configure instead of eight. A
+structural test greps the source for `OpenAI(` so a new module cannot silently inherit the
+ten-minute default again.
+
+The retrieval numbers being byte-identical is the result that mattered for a change
+touching eight modules.
+
 ### What this rules in and out
 
 - **Rewrite-and-retry**: measured at 0 rescues from 5 chances. Kept in the codebase,

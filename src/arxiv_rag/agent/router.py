@@ -32,11 +32,11 @@ import json
 import logging
 from typing import Literal
 
-from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from arxiv_rag.agent.tools import IndexedPaper
 from arxiv_rag.config import Settings
+from arxiv_rag.llm import get_client as _client
 
 log = logging.getLogger(__name__)
 
@@ -182,7 +182,3 @@ def route_question(
         log.warning("router unavailable, defaulting to retrieve: %s", exc)
         return RouteDecision(route="retrieve", reason=f"router failed: {exc}")
     return verify_route(decision, indexed)
-
-
-def _client(settings: Settings) -> OpenAI:
-    return OpenAI(api_key=settings.openai_api_key)

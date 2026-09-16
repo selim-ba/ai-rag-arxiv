@@ -19,9 +19,8 @@ import json
 import logging
 import re
 
-from openai import OpenAI
-
 from arxiv_rag.config import Settings
+from arxiv_rag.llm import get_client as _client
 from arxiv_rag.retrieval.bm25 import tokenize
 
 log = logging.getLogger(__name__)
@@ -113,7 +112,3 @@ def rewrite_query(question: str, missing: str, settings: Settings) -> str:
         return f"{question} {missing}"
 
     return query
-
-
-def _client(settings: Settings) -> OpenAI:
-    return OpenAI(api_key=settings.openai_api_key)

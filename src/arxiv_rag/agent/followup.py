@@ -27,11 +27,11 @@ import json
 import logging
 from dataclasses import dataclass
 
-from openai import OpenAI
 from pydantic import BaseModel
 
 from arxiv_rag.agent.rewrite import preserves_key_terms
 from arxiv_rag.config import Settings
+from arxiv_rag.llm import get_client as _client
 
 log = logging.getLogger(__name__)
 
@@ -155,7 +155,3 @@ def resolve_followup(history: list[Turn], followup: str, settings: Settings) -> 
         log.warning("follow-up resolution failed, using the question as asked: %s", exc)
         return Resolution(changed=False, resolved=followup, reason=f"resolver failed: {exc}")
     return verify_resolution(resolution, followup)
-
-
-def _client(settings: Settings) -> OpenAI:
-    return OpenAI(api_key=settings.openai_api_key)

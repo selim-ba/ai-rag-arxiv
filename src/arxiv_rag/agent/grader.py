@@ -17,11 +17,11 @@ to name what is missing rather than gesture at it.
 
 import logging
 
-from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from arxiv_rag.config import Settings
 from arxiv_rag.evaluation.quotes import quote_supported
+from arxiv_rag.llm import get_client as _client
 from arxiv_rag.retrieval.answer import format_context
 from arxiv_rag.retrieval.store import SearchHit
 
@@ -157,7 +157,3 @@ class Grader:
             # count them instead of reading a systemic failure as a lenient grader.
             log.warning("grader unavailable, defaulting to relevant: %s", exc)
             return Grade(relevant=True, missing=f"grader failed: {exc}")
-
-
-def _client(settings: Settings) -> OpenAI:
-    return OpenAI(api_key=settings.openai_api_key)
