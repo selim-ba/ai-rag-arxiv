@@ -34,6 +34,12 @@ from arxiv_rag.agent.graph import build_graph, run_agent
 from arxiv_rag.agent.session import SessionStore, new_conversation_id
 from arxiv_rag.config import Settings, get_settings
 from arxiv_rag.ingestion.models import Chunk
+from arxiv_rag.observability import (
+    RequestLogMiddleware,
+    configure_logging,
+    current_request_id,
+    note,
+)
 from arxiv_rag.retrieval.answer import answer_question, assemble_answer, stream_generate
 from arxiv_rag.retrieval.hybrid import Retriever, build_hybrid
 from arxiv_rag.retrieval.store import ChunkStore
@@ -51,6 +57,7 @@ async def lifespan(app: FastAPI):
     exactly what is wrong.
     """
     settings = get_settings()
+    configure_logging(settings.log_level)
     try:
         store = ChunkStore.load(settings.index_dir)
         log.info("index loaded: %d chunks", len(store))
@@ -105,6 +112,12 @@ app = FastAPI(
     version=__version__,
     lifespan=lifespan,
 )
+
+# Outermost: every response gets an `X-Request-ID` header and every request gets one JSON
+# summary line, including the ones that fail validation before an endpoint is reached. A
+# 422 that no endpoint ever saw is exactly the kind of failure a caller reports as "it
+# returned an error" with nothing to grep for.
+app.add_middleware(RequestLogMiddleware)
 
 
 def get_retriever(request: Request) -> Retriever:
@@ -176,6 +189,11 @@ class AskResponse(BaseModel):
     resolved_question: str | None = Field(
         default=None, description="the standalone question actually answered, if rewritten"
     )
+    # Also on the `X-Request-ID` header. In the body as well because the header is the
+    # first thing a client library drops, and an id nobody can find is not an id.
+    request_id: str | None = Field(
+        default=None, description="quote this when reporting a problem with this answer"
+    )
 
 
 @app.get("/health")
@@ -245,6 +263,21 @@ def ask(
     else:
         answer = answer_question(question, retriever, settings, k=payload.k)
 
+    # On the summary line rather than in a second log call: what makes a line worth
+    # keeping is that one row answers "which request, which path, what came out, and what
+    # did it cost" without a join. `resolved` is here because a question answered
+    # differently from the one typed is the first thing to check when an answer looks wrong.
+    note(
+        mode="agent" if use_agent else "pipeline",
+        conversation_id=conversation_id,
+        turn=len(history) + 1,
+        resolved=resolution.changed,
+        refused=answer.refused,
+        citations=len(answer.citations),
+        retrieve_ms=round(answer.retrieve_ms, 1),
+        generate_ms=round(answer.generate_ms, 1),
+    )
+
     # Record what was ASKED, not the resolution: the next turn's resolver reads this as a
     # transcript, and a transcript of rewritten questions drifts further from the
     # conversation with every turn.
@@ -264,6 +297,7 @@ def ask(
         generate_ms=round(answer.generate_ms, 1),
         conversation_id=conversation_id,
         resolved_question=question if resolution.changed else None,
+        request_id=current_request_id(),
     )
 
 
@@ -318,6 +352,14 @@ def ask_stream(
     # Before the stream opens: a failure here can still be a 5xx.
     hits = retriever.search(question, k=payload.k or settings.top_k)
 
+    note(
+        mode="stream",
+        conversation_id=conversation_id,
+        turn=len(history) + 1,
+        resolved=resolution.changed,
+    )
+    request_id = current_request_id()
+
     def events():
         pieces: list[str] = []
         try:
@@ -326,12 +368,23 @@ def ask_stream(
                 yield sse("token", {"text": piece})
         except Exception as exc:  # noqa: BLE001 - the response has already started
             log.warning("stream failed after %d pieces: %s", len(pieces), exc)
-            yield sse("error", {"detail": "generation failed", "partial": "".join(pieces)})
+            note(stream_error=type(exc).__name__, pieces=len(pieces))
+            yield sse(
+                "error",
+                {
+                    "detail": "generation failed",
+                    "partial": "".join(pieces),
+                    # The frame a user will paste into a bug report. Without the id it
+                    # says only that something broke, which is what the logs already say.
+                    "request_id": request_id,
+                },
+            )
             return
 
         # The same pure function the non-streaming path uses, on the same complete text.
         answer = assemble_answer(question, hits, "".join(pieces))
         sessions.append(conversation_id, Turn(question=payload.question, answer=answer.text))
+        note(refused=answer.refused, citations=len(answer.citations))
         by_id = app.state.chunks_by_id
         yield sse(
             "done",
@@ -347,6 +400,7 @@ def ask_stream(
                 ],
                 "conversation_id": conversation_id,
                 "resolved_question": question if resolution.changed else None,
+                "request_id": request_id,
             },
         )
 

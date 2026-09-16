@@ -28,9 +28,11 @@ hashable. Tests that build a Settings with a different timeout get a different c
 import logging
 from functools import lru_cache
 
+import httpx2 as httpx
 from openai import OpenAI
 
 from arxiv_rag.config import Settings
+from arxiv_rag.observability import request_hook, timing_hook
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +40,14 @@ log = logging.getLogger(__name__)
 @lru_cache(maxsize=8)
 def _build(api_key: str, timeout: float, max_retries: int) -> OpenAI:
     log.info("openai client: timeout=%.0fs max_retries=%d", timeout, max_retries)
-    return OpenAI(api_key=api_key, timeout=timeout, max_retries=max_retries)
+    # The hooks go on the HTTP client, below the SDK's retry loop, which is the only place
+    # they can see it. By the time `chat.completions.create` returns, the retries are over
+    # and were never reported; the hook sees each attempt as it happens.
+    http = httpx.Client(
+        timeout=timeout,
+        event_hooks={"request": [request_hook], "response": [timing_hook]},
+    )
+    return OpenAI(api_key=api_key, timeout=timeout, max_retries=max_retries, http_client=http)
 
 
 def get_client(settings: Settings) -> OpenAI:
