@@ -23,6 +23,20 @@ fact an existing gold chunk already covers, and it is added *into that chunk's g
 Candidates that answer some *different* part of the question are reported but never
 proposed: adding one as a new group would raise the recall denominator and change what the
 question is asking for, which is a question-design decision, not a labelling fix.
+
+**The candidate pool is every retriever that gets measured, not just the dense one.** The
+first pass drew candidates from dense retrieval's top 10 alone, while every published
+number comes from the hybrid. A chunk that BM25 ranks 2nd and dense does not rank at all
+was therefore never even a candidate for labelling - and that is precisely the shape of
+the defect the first pass left behind: a question scoring *correct* while its retrieval
+scored a *miss*, because the chunk that answered it was never on any gold list. The pool
+is now the union of dense, BM25 and the fused hybrid, each at `--top-k`, which is the set
+of chunks any measured configuration can surface.
+
+Auditing deeper than that changes no published metric. The metrics are @1 and @5; a
+chunk nothing ranks in its top 10 cannot turn a measured miss into a hit at k=5. Depth
+buys labels for configurations that do not exist yet, and every extra candidate is another
+chance for the auditor to fabricate one.
 """
 
 import argparse
@@ -34,7 +48,8 @@ from openai import OpenAI
 from arxiv_rag.config import get_settings
 from arxiv_rag.evaluation.metrics import flatten
 from arxiv_rag.evaluation.quotes import quote_supported
-from arxiv_rag.retrieval.embeddings import embed_query
+from arxiv_rag.retrieval.bm25 import BM25Index
+from arxiv_rag.retrieval.hybrid import DenseRetriever, HybridRetriever
 from arxiv_rag.retrieval.store import ChunkStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -112,6 +127,20 @@ def propose(args) -> None:
     store = ChunkStore.load(settings.index_dir)
     by_id = {c.chunk_id: c for c in store.chunks}
     client = OpenAI(api_key=settings.openai_api_key)
+
+    # The three retrievers whose numbers appear in docs/results.md, configured exactly as
+    # they are there. Fusion depth has to be at least the pool depth or the fused list is
+    # shorter than what is being asked for.
+    dense = DenseRetriever(store, settings)
+    bm25 = BM25Index(store.chunks)
+    hybrid = HybridRetriever(
+        [dense, bm25],
+        depth=max(settings.fusion_depth, args.top_k),
+        rrf_k=settings.rrf_k,
+        weights=settings.fusion_weight_list,
+    )
+    pools = {"hybrid": hybrid, "dense": dense, "bm25": bm25}
+
     questions = [q for q in load_questions() if q["answerable"]]
     if args.only:
         questions = [q for q in questions if q["id"] == args.only]
@@ -119,13 +148,28 @@ def propose(args) -> None:
 
     rows: list[dict] = []
     REVIEW.write_text("")
-    print(f"auditing {len(questions)} questions, top-{args.top_k} candidates each\n")
+    print(
+        f"auditing {len(questions)} questions; candidates = top-{args.top_k} of "
+        f"{', '.join(pools)}, unioned\n"
+    )
 
     for i, q in enumerate(questions, start=1):
         gold_ids = flatten(q["gold_chunk_ids"])
-        hits = store.search(embed_query(q["question"], settings), k=args.top_k)
-        candidates = [h.chunk for h in hits if h.chunk.chunk_id not in gold_ids]
-        ranks = {h.chunk.chunk_id: r for r, h in enumerate(hits, start=1)}
+        # One rank table per retriever, and the candidate list ordered by the hybrid's
+        # view - it is the one that ships, so a reviewer reading top to bottom sees the
+        # proposals that can actually move a number first.
+        ranks = {
+            name: {
+                h.chunk.chunk_id: r
+                for r, h in enumerate(pool.search(q["question"], k=args.top_k), start=1)
+            }
+            for name, pool in pools.items()
+        }
+        found = {cid: by_id[cid] for table in ranks.values() for cid in table if cid in by_id}
+        candidates = sorted(
+            (c for cid, c in found.items() if cid not in gold_ids),
+            key=lambda c: ranks["hybrid"].get(c.chunk_id, 999),
+        )
         if not candidates:
             print(f"{i:3}/{len(questions)}  {q['id']}  no unlabelled candidates")
             continue
@@ -146,7 +190,12 @@ def propose(args) -> None:
         if args.debug:
             print(f"\n--- {q['id']} candidates sent ---")
             for c in candidates:
-                print(f"  {c.chunk_id}  (rank {ranks.get(c.chunk_id)})  {c.title[:60]}")
+                where = " ".join(
+                    f"{name[0]}{table[c.chunk_id]}"
+                    for name, table in ranks.items()
+                    if c.chunk_id in table
+                )
+                print(f"  {c.chunk_id}  ({where})  {c.title[:60]}")
             print(f"--- raw reply ---\n{response.choices[0].message.content}\n")
         try:
             verdicts = json.loads(response.choices[0].message.content or "{}").get("candidates", [])
@@ -186,7 +235,11 @@ def propose(args) -> None:
                     "question_id": q["id"],
                     "question": q["question"],
                     "candidate_id": cid,
-                    "candidate_rank": ranks.get(cid),
+                    # The rank that matters is the shipped retriever's. The other two
+                    # are kept because "dense never saw it" is the interesting case.
+                    "candidate_rank": ranks["hybrid"].get(cid),
+                    "rank_dense": ranks["dense"].get(cid),
+                    "rank_bm25": ranks["bm25"].get(cid),
                     "alternative_to": target if is_alt else "",
                     "quote": quote[:300],
                     "candidate_title": by_id[cid].title,
@@ -264,7 +317,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("propose", help="ask the model which unlabelled chunks also answer")
-    p.add_argument("--top-k", type=int, default=10)
+    p.add_argument(
+        "--top-k", type=int, default=10, help="depth per retriever; the pools are unioned"
+    )
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--only", default=None, help="audit a single question id, e.g. q013")
     p.add_argument("--debug", action="store_true", help="print candidates and the raw reply")

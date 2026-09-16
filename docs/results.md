@@ -240,6 +240,65 @@ Result: 43 verified proposals, 18 accepted, 25 rejected. The three recurring rej
 patterns were abstract boilerplate, performance results offered for mechanism questions,
 and — most dangerous — **wrong-system chunks**, such as DreamerV2 describing itself being
 offered as evidence for a question about IRIS.
+
+### The second pass: a better candidate pool, and nothing to change
+
+The first pass drew candidates from **dense retrieval's top 10 alone**, while every number
+in this document comes from the hybrid. A chunk BM25 ranks 2nd and dense does not rank at
+all was therefore never a candidate for labelling — the audit was auditing a retriever
+nobody ships. The pool is now the union of dense, BM25 and the fused hybrid, each at
+depth 10, which is the set of chunks any measured configuration can surface. Seven
+proposals came from chunks the hybrid never ranked, four of them found only by BM25.
+
+Auditing *deeper* was considered and rejected: the metrics are @1 and @5, so a chunk
+nothing ranks in its top 10 cannot turn a measured miss into a hit, and every extra
+candidate is another chance for the auditor to fabricate one.
+
+| | first pass | second pass |
+|---|---|---|
+| candidate pool | dense top 10 | dense ∪ BM25 ∪ hybrid, top 10 each |
+| rows written | 54 | 244 (41 proposed as alternatives, 203 pre-marked drop) |
+| fabricated quotes caught | 11 | **15**, about 27% of everything called an alternative |
+| **accepted** | 18 | **0** |
+
+**Only 11 of the 41 proposals could have changed a published number**, and all 11 were
+rejected on inspection:
+
+- **eight** would have flipped a question from miss to hit at k=5 — q011, q024 (×3),
+  q026, q028 (×2), q033 — worth **hit@5 0.676 → 0.824** if accepted;
+- **three** sat at rank 1 and could have moved hit@1 — q017, q022, q029.
+
+Every one was a topic match rather than a claim match. q024's five were all chunks
+describing *Dreamer's* actor-critic offered as evidence that *IRIS borrowed it* — the
+attribution is the entire claim and none of them make it. q011 and q026 were handed the
+same generic survey paragraph with two different sentences cherry-picked from it; one
+paragraph that is evidence for two unrelated claims is evidence for neither. q022's was
+the DreamerV2 abstract, which alludes to "discrete representations" without stating the
+architecture the question asks about.
+
+**The bias in this tool runs one way, and it is worth naming.** The auditor only ever sees
+chunks the retriever *returned*, so every accepted proposal raises the score and a rejected
+one costs nothing. A false accept inflates; a false reject is invisible and harmless. That
+asymmetry is the argument for reviewing the consequential proposals hardest — they are
+exactly the ones the bias points at.
+
+The 30 proposals that could move no metric were dropped without individual review, and
+that is recorded here rather than hidden: dropping is the conservative direction, and a
+label that changes no number is not worth a review budget.
+
+**The result is a negative one, and it strengthens the numbers rather than changing them.**
+The nine questions that neither retriever answers at k=5 are genuine retrieval failures,
+not labelling artefacts. Diminishing returns are themselves a finding: the first audit
+found 18 real omissions, the second — with a strictly better pool — found none.
+
+A separate finding fell out of it. q024 had been recorded as "answered correctly while its
+retrieval scored a miss", which is what reopened this audit. In the current run it scores
+`correct: false`, with the judge calling it a CONTRADICTION between *"did not design their
+own actor-critic objectives; instead built upon existing frameworks"* and the reference's
+*"they borrowed them, adopting the objectives of DreamerV2"* — which agree. The answer is
+vaguer, not contradictory. So the note was stale, and the judge is wrong here in the harsh
+direction: another well-formed reason that is substantively wrong, which is the failure
+mode the contract was already known not to catch.
 ---
 
 ## Stage 4 — the agent loop, and why the retry rescues nothing

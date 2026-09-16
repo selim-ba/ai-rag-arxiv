@@ -59,7 +59,7 @@ score-judge:
 	.venv/bin/python -m scripts.label_judge score
 
 gold-audit:
-	.venv/bin/python -m scripts.gold_audit propose
+	.venv/bin/python -m scripts.gold_audit propose $(ARGS)
 
 gold-apply:
 	.venv/bin/python -m scripts.gold_audit apply
