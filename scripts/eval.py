@@ -60,6 +60,11 @@ def main() -> None:
         action="store_true",
         help="route through the LangGraph agent instead of calling answer_question directly",
     )
+    parser.add_argument(
+        "--router",
+        action="store_true",
+        help="with --agent, also turn the router on: the configuration the API ships",
+    )
     args = parser.parse_args()
 
     settings = get_settings()
@@ -86,7 +91,13 @@ def main() -> None:
     if args.agent:
         from arxiv_rag.agent.graph import build_graph, run_agent
 
-        graph = build_graph(retriever, settings)
+        # `store=` is what turns the router on. It was left out on the argument that all 40
+        # questions are corpus-content questions, so routing could not change an answer.
+        # Stage 7 produced a counterexample while recording the demo: on a comparison
+        # question spanning two papers the router scoped retrieval to the wrong pair of
+        # ids and turned a correct answer into a refusal. So the configuration the API
+        # actually ships is now measurable, at the cost of one extra model call a question.
+        graph = build_graph(retriever, settings, store=store if args.router else None)
 
         def answer_for(question: str):
             return run_agent(graph, question)
@@ -101,7 +112,7 @@ def main() -> None:
     out_path = out_dir / f"run-{stamp}.jsonl"
 
     records: list[dict] = []
-    mode = "agent" if args.agent else "pipeline"
+    mode = "agent+router" if args.agent and args.router else ("agent" if args.agent else "pipeline")
     print(f"{len(questions)} questions, {mode}, retriever={args.retriever} -> {out_path.name}\n")
 
     failures: list[tuple[str, str]] = []

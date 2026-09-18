@@ -1280,6 +1280,62 @@ byte-identical metrics - the same bar the shared-client refactor was held to.
 
 ---
 
+## Stage 7 - the router, measured at last
+
+Stage 4 shipped a router and never evaluated it. `scripts/eval.py` deliberately did not
+pass `store=`, on the argument that all 40 eval questions are corpus-content questions, so
+routing could not change an answer. Stage 7 produced a counterexample by accident - while
+recording answers for the landing page, the router scoped a two-paper comparison to the
+wrong pair of ids and turned a correct answer into a refusal - so `--router` now exists and
+the shipped configuration is measurable.
+
+Three runs. The first two are the SAME configuration two days apart, which is the control
+that makes the third readable:
+
+| | agent, 16 Sep | agent, 18 Sep | **agent + router, 18 Sep** |
+|---|---|---|---|
+| hit@1 | 0.353 | 0.353 | 0.324 |
+| hit@5 | 0.676 | 0.676 | **0.735** |
+| recall@5 | 0.578 | 0.578 | 0.593 |
+| correctness | 0.323 | **0.375** | 0.500 |
+| faithfulness | 0.677 | 0.688 | 0.750 |
+| refusal accuracy | 0.900 | **0.925** | 0.875 |
+
+**Retrieval is deterministic; the judge is not.** Two runs of the identical configuration
+produced byte-identical retrieval numbers and correctness 5 points apart. That 5-point
+band is the noise floor for this eval set, measured rather than assumed, and it is the
+number every comparison below has to clear.
+
+**What the router demonstrably buys: +2 questions on hit@5**, q029 and q033, both
+comparison questions spanning two named papers. The paper filter scopes retrieval to those
+papers and the gold chunk comes into the top 5. Deterministic, attributable, and exactly
+what the component was built for.
+
+**What it might buy: correctness.** 0.500 against the same-day control's 0.375 is +4
+questions, against a noise floor of ~1.7 questions. Suggestive; not established at n=32
+with an instrument this unstable. Settling it needs three runs of each configuration -
+about $0.60 - and has not been done.
+
+**What it costs, and the cost is hidden in the wrong column.** Refusal accuracy fell 0.925
+-> 0.875: **q004 and q038, both deliberately unanswerable, were answered** under routing
+when the same questions were refused without it. Refusal rate went 0.833 -> 0.500 - three
+of six unanswerable questions answered. Scoping an unanswerable question to a plausible
+paper hands the generator something that looks like evidence, and it takes it.
+
+That is the trade in one line: **routing finds two more comparison answers and invents two
+more answers that should not exist.** For a system whose headline claim is that it refuses
+what it cannot support, that is not a favourable exchange, and it is why the public demo
+runs the pipeline and uses the agent only where routing IS the feature - catalog questions,
+which take no model call at all, and questions naming a paper by an alias the corpus titles
+do not contain.
+
+**The near-miss worth recording.** The first comparison available was the routed run
+against a control from two days earlier: correctness 0.323 -> 0.500, an 18-point gain that
+would have been written up as the largest quality improvement since fusion weighting. A
+third of it was the calendar. The control run cost five cents.
+
+---
+
 ## Known limitations
 
 1. **Gold labels are incomplete.** Two of five spot-checked questions were answered

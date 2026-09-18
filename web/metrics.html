@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What the numbers mean — Agentic RAG for World Models &amp; JEPA Research</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .def{border-left:2px solid var(--line);padding:2px 0 2px 13px;margin:16px 0}
+  .def:target{border-color:var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0}
+  .def h3{margin:0 0 4px;font-size:1rem}
+  .def .val{font-variant-numeric:tabular-nums;color:var(--accent);font-weight:650}
+  .def p{margin:5px 0;font-size:.9rem}
+  .def .plain{color:var(--ink)}
+  .def .why{color:var(--muted);font-size:.85rem}
+</style>
+</head>
+<body>
+<header>
+  <a class="back" href="/">← back to the demo</a>
+  <h1>What the numbers mean</h1>
+  <p>
+    Every figure on the front page: what it measures, what it does not, and why it is
+    worth reporting.
+  </p>
+</header>
+
+<div class="page">
+  <div class="panel">
+    <h2>How the system is tested at all</h2>
+    <p class="small">
+      A hand-written set of <b>40 questions</b> about the 49 papers: 20 factual, 10
+      comparisons, 4 definitional, and <b>6 that the papers deliberately cannot answer</b>.
+      For the 34 answerable ones, the chunks that genuinely contain the answer were
+      labelled by hand. Everything below is measured against that set.
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>Finding the right chunk</h2>
+
+    <div class="def" id="hit5">
+      <h3>hit@5 — <span class="val">0.676</span></h3>
+      <p class="plain">Of the questions with a known answer, how often at least one correct
+        chunk appears in the five the system retrieves.</p>
+      <p class="why">This is the ceiling on everything else: the answer is written only from
+        those five chunks, so if none of them contains the fact, no amount of language
+        skill can recover it. Two-thirds is the honest state of this system.</p>
+    </div>
+
+    <div class="def" id="hit1">
+      <h3>hit@1 — <span class="val">0.353</span></h3>
+      <p class="plain">How often the <i>very first</i> chunk is a correct one.</p>
+      <p class="why">Matters less than it looks here, because the answer is written from all
+        five chunks, not just the first. It is useful for comparing ways of ranking — search
+        by meaning, search by exact words, the two merged, the two merged with weights, and
+        two kinds of re-ranking that reorder the shortlist — but it does not predict whether
+        the answer will be right.</p>
+    </div>
+
+    <div class="def" id="recall5">
+      <h3>recall@5 — <span class="val">0.578</span></h3>
+      <p class="plain">Some questions need several facts. This is the share of the needed
+        facts that made it into the five chunks, not just whether one did.</p>
+      <p class="why">A question can score a “hit” and still be missing half of what it needs
+        — this is the number that notices.</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Quality of the answer</h2>
+
+    <div class="def" id="correctness">
+      <h3>correctness — <span class="val">0.375</span></h3>
+      <p class="plain">Does the answer actually say what a reference answer, written by hand
+        from the papers, says? Judged by a second model, checked against blind human
+        labels.</p>
+      <p class="why">The judge was checked against a human labelling the same answers
+        without seeing its verdicts, and the two agree at <b>Cohen’s κ +0.80</b>. Cohen’s
+        kappa measures how much two judges agree beyond what they would hit by chance alone:
+        0 is chance, 1 is perfect, and anything above about 0.8 is usually called strong. It
+        is why this number, rather than the others, carries the quality claims. The value is
+        low because retrieval is the bottleneck: an answer cannot be right about a chunk that
+        was never retrieved.</p>
+    </div>
+
+    <div class="def" id="faithfulness">
+      <h3>faithfulness — <span class="val">not validated</span></h3>
+      <p class="plain">Whether every claim in the answer is actually supported by the
+        retrieved chunks.</p>
+      <p class="why">Reported as an auditable signal rather than a measurement: two runs
+        with nothing changed disagreed enough to flip the sign of its agreement statistic.
+        A number that unstable cannot be used to decide anything.</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Knowing when to say no</h2>
+
+    <div class="def" id="refusal">
+      <h3>refusal accuracy — <span class="val">0.925</span></h3>
+      <p class="plain">Counts all four outcomes: answered when it should, refused when it
+        should, and both mistakes. Six of the 40 questions are unanswerable on purpose.</p>
+      <p class="why">Deliberately <i>not</i> “refusal rate”. A system that refuses
+        everything scores a perfect refusal rate and is useless, so the measure has to count
+        both kinds of mistake at once.</p>
+    </div>
+
+    <div class="def" id="falserefusal">
+      <h3>false refusal rate — <span class="val">0.059</span></h3>
+      <p class="plain">How often it declines a question it could actually have answered.</p>
+      <p class="why">The price of caution, kept visible so the caution can be priced.</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Understanding the question</h2>
+
+    <div class="def" id="routing">
+      <h3>routing accuracy — <span class="val">1.000</span> on held-out questions</h3>
+      <p class="plain">Given a question, does the system correctly decide whether it is about
+        the papers in general, about specific named papers, or about the library itself?</p>
+      <p class="why">Scored against a specification written <i>before</i> the router
+        existed. The first version scored well while picking the wrong paper every time,
+        because the corpus titles do not contain the names anyone uses — “V-JEPA” is filed
+        as <i>Revisiting Feature Prediction for Learning Visual Representations from
+        Video</i>. A hand-written table of aliases fixed it.</p>
+    </div>
+
+    <div class="def" id="followup">
+      <h3>follow-up resolution — <span class="val">13 of 18</span></h3>
+      <p class="plain">“and does it train a policy network?” has to become “does PlaNet train
+        a policy network?” before anything searches.</p>
+      <p class="why">Measured on 18 written-out cases: a first question, a follow-up, and
+        what the follow-up should be understood to mean. It gets 13 right, and — the part
+        that matters more — it never rewrote a question that was already complete.</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Cost and speed</h2>
+
+    <div class="def" id="cost">
+      <h3>cost per question — <span class="val">$0.000517</span></h3>
+      <p class="plain">Measured from the actual token counts, not estimated: about 3,000
+        words of chunks in, a short answer out.</p>
+      <p class="why">It is why a 50-cent daily budget is roughly a thousand questions, and
+        why this demo can be public without being expensive.</p>
+    </div>
+
+    <div class="def" id="ttft">
+      <h3>time to first word — <span class="val">657 ms</span></h3>
+      <p class="plain">How long before text starts appearing, against 1.76 s for the whole
+        answer.</p>
+      <p class="why">Measured from when the request arrives, not from when the model starts
+        — the reader waits through the search too, and timing from the convenient moment
+        would flatter the number by exactly the part streaming does not help.</p>
+    </div>
+  </div>
+</div>
+<footer>
+  Full methodology, including the measurements that produced negative results, is in the
+  repository’s <code>docs/results.md</code>.
+</footer>
+</body>
+</html>

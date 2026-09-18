@@ -23,9 +23,11 @@ page from the type hints below, which is a large part of why it is worth using.
 import json
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from arxiv_rag import __version__
@@ -244,6 +246,39 @@ class AskResponse(BaseModel):
     request_id: str | None = Field(
         default=None, description="quote this when reporting a problem with this answer"
     )
+
+
+# The landing pages, served from the same origin as the API so the live box needs no CORS
+# and no second deployment. The mount itself is at the bottom of this file - see there for
+# why it has to be last.
+# Relative to the working directory, NOT to this file. `pip install .` puts the package in
+# site-packages, where a path built from `__file__` climbs out into /usr/local and finds
+# nothing - the page would 404 in the image and work perfectly on a laptop. `config.py`
+# resolves `data/` the same way for the same reason.
+WEB = Path("web")
+
+
+@app.get("/papers.json", include_in_schema=False)
+def papers(request: Request) -> dict:
+    """The corpus, from the index itself rather than from a file written beside it.
+
+    A list of papers maintained by hand next to an index built by a script is a list that
+    is wrong the first time either changes. This one cannot drift: it is the index.
+    """
+    store = request.app.state.store
+    if store is None:
+        raise HTTPException(status_code=503, detail="index not loaded")
+    titles: dict[str, str] = {}
+    counts: dict[str, int] = {}
+    for chunk in store.chunks:
+        titles.setdefault(chunk.arxiv_id, chunk.title)
+        counts[chunk.arxiv_id] = counts.get(chunk.arxiv_id, 0) + 1
+    return {
+        "chunks_indexed": len(store),
+        "papers": [
+            {"arxiv_id": aid, "title": titles[aid], "chunks": counts[aid]} for aid in sorted(titles)
+        ],
+    }
 
 
 @app.get("/health")
@@ -471,3 +506,16 @@ def ask_stream(
         # once, which looks exactly like the endpoint not streaming at all.
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# The pages, mounted rather than routed one by one: they are static files and there are
+# five of them. Added LAST because Starlette matches in order - a mount at "/" would
+# otherwise shadow every endpoint declared after it.
+#
+# `html=True` serves `index.html` at "/" and resolves `papers.html` and friends. A missing
+# directory is a warning, not a crash: the API is the service, the pages are a courtesy,
+# and a build without them should still answer questions.
+if WEB.is_dir():
+    app.mount("/", StaticFiles(directory=WEB, html=True), name="web")
+else:
+    log.warning("no %s directory - the landing page will 404", WEB)

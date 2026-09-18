@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic RAG for World Models &amp; JEPA Research</title>
+<meta name="description" content="Ask a research question about world models and get cited answers from 49 arXiv papers. Every claim measured, including the ones that failed.">
+<link rel="stylesheet" href="style.css">
+<style>
+.wrap{
+  max-width:1400px;margin:0 auto;padding:16px 20px 40px;
+  display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:20px;align-items:start;
+}
+.col{display:flex;flex-direction:column;gap:20px;min-width:0}
+@media (max-width:980px){ .wrap{grid-template-columns:1fr} }
+
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 2px}
+.chip{
+  border:1px solid var(--line);background:transparent;color:var(--ink);
+  border-radius:999px;padding:5px 11px;font-size:.82rem;cursor:pointer;text-align:left;
+}
+.chip:hover{border-color:var(--accent);color:var(--accent)}
+.chip[data-kind="fails"]{border-color:var(--bad);color:var(--bad)}
+.chip[data-kind="refuses"]{border-color:var(--warn);color:var(--warn)}
+.group-label{font-size:.8rem;color:var(--muted);margin:13px 0 0}
+
+.qlist{display:flex;flex-direction:column;gap:2px;margin-top:4px}
+.qbtn{
+  display:block;width:100%;text-align:left;border:1px solid var(--line);border-radius:8px;
+  padding:8px 12px;background:transparent;color:var(--ink);font:inherit;font-size:.86rem;
+  cursor:pointer;
+}
+.qbtn:hover{border-color:var(--accent);color:var(--accent)}
+.qbtn[aria-expanded="true"]{border-color:var(--accent);color:var(--accent)}
+.qbtn::before{content:"▸  ";color:var(--muted)}
+.qbtn[aria-expanded="true"]::before{content:"▾  ";color:var(--accent)}
+.qbtn[data-kind="fails"]{border-color:var(--bad);color:var(--bad)}
+.qbtn[data-kind="refuses"]{border-color:var(--warn);color:var(--warn)}
+.answer{margin:4px 0 10px 6px}
+.turn{border-left:2px solid var(--line);padding-left:12px}
+.q{font-weight:600}
+.resolved{color:var(--muted);font-size:.85rem;margin-top:2px}
+.a{margin-top:7px;white-space:pre-wrap}
+.a.refused{color:var(--warn)}
+.meta{margin-top:8px;font-size:.78rem;color:var(--muted);display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.badge{border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+a.badge{text-decoration:none;color:var(--muted)}
+a.badge:hover{border-color:var(--accent);color:var(--accent)}
+.badge.live{border-color:var(--accent);color:var(--accent)}
+.badge.fail{border-color:var(--bad);color:var(--bad)}
+details.sources{margin-top:7px}
+details.sources summary{cursor:pointer;font-size:.8rem;color:var(--muted)}
+details.sources ol{margin:7px 0 0;padding-left:20px;font-size:.84rem}
+details.sources li{margin-bottom:3px}
+
+form.ask{display:flex;gap:8px;margin-top:10px}
+form.ask input{
+  flex:1;min-width:0;padding:9px 12px;border:1px solid var(--line);border-radius:8px;
+  background:var(--bg);color:var(--ink);font:inherit;
+}
+form.ask button{
+  padding:9px 15px;border:1px solid var(--accent);background:var(--accent);color:var(--panel);
+  border-radius:8px;font:inherit;cursor:pointer;
+}
+form.ask button:disabled{opacity:.5;cursor:not-allowed}
+#status{font-size:.79rem;color:var(--muted);margin-top:7px;min-height:1.2em}
+#livelog{margin-top:12px;display:flex;flex-direction:column;gap:14px}
+
+.links{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.links a{
+  border:1px solid var(--line);border-radius:8px;padding:7px 12px;text-decoration:none;
+  color:var(--ink);font-size:.85rem;
+}
+.links a:hover{border-color:var(--accent);color:var(--accent)}
+td a, th a{color:inherit;text-decoration:none;border-bottom:1px dotted var(--muted)}
+td a:hover, th a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Agentic RAG for World Models &amp; JEPA Research</h1>
+  <p>
+    Ask a research question about world models and get cited answers drawn from one or
+    several of the <a href="papers.html">49 research papers</a> this system was built over.
+  </p>
+</header>
+
+<div class="wrap">
+
+  <!-- ============ LEFT ============ -->
+  <div class="col">
+
+    <main class="panel">
+      <h2>Try it on pre-recorded questions and answers</h2>
+      <p class="small">
+        This project runs on a fixed daily allowance of API calls. Answering a question
+        costs about $0.0005, so the allowance covers <b>800–900 questions a day</b> — use it
+        as much as you like. If it does run out, everything below still works: these are
+        real answers from this system, recorded once and served from a file, so they are
+        instant and free. Each is labelled with the route it took and what it cost.
+      </p>
+      <div id="chips"></div>
+    </main>
+
+    <section class="panel">
+      <h2>Ask your own question</h2>
+      <p class="small" id="intro">
+        This one runs the live system against the same 49 papers.
+      </p>
+      <form class="ask" id="askform" autocomplete="off">
+        <input id="q" placeholder="e.g. How does Dreamer learn from imagined trajectories?"
+               minlength="3" maxlength="500" required>
+        <button id="send" type="submit">Ask</button>
+      </form>
+      <div id="status"></div>
+      <div id="livelog"></div>
+    </section>
+
+  </div>
+
+  <!-- ============ RIGHT ============ -->
+  <div class="col">
+    <aside class="panel">
+      <h2>Overview</h2>
+      <p class="small">
+        A question-answering system over 49 arXiv papers on world models and
+        joint-embedding predictive architectures. It searches the papers, answers only from
+        what it found, and refuses when they do not contain the answer. Every number below
+        is measured against a hand-written test set —
+        <a href="metrics.html">what each one means</a>.
+      </p>
+
+      <h3>How a question is answered</h3>
+      <ul class="tight">
+        <li><b>Search</b> — the papers are split into 874 chunks; two searches run at once, one by meaning and one by exact words, and the rankings are merged.</li>
+        <li><b>Answer</b> — written only from the five best-ranked chunks it found, with citations filled in from the search results so they cannot be invented.</li>
+        <li><b>Or refuse</b> — when the chunks do not support an answer.</li>
+        <li class="small"><a href="how-it-works.html">The two routes a question can take →</a></li>
+      </ul>
+    </aside>
+
+    <aside class="panel">
+      <h2>Finding the right chunk</h2>
+      <p class="small">
+        Measured on a hand-written test set of <b>40 questions</b>: 34 with a known answer,
+        where the chunks that really contain it were labelled by hand, and 6 that the papers
+        deliberately cannot answer. The table below uses the 34. Five chunks are retrieved
+        per question, and each chunk is stored as a <b>1,536-dimensional embedding</b>
+        (OpenAI <code>text-embedding-3-small</code>) for meaning-based search, and in a word
+        index for exact-term search.
+      </p>
+      <table>
+        <tr>
+          <th>how it searches</th>
+          <th class="num"><a href="metrics.html#hit1">hit@1</a></th>
+          <th class="num"><a href="metrics.html#hit5">hit@5</a></th>
+          <th class="num"><a href="metrics.html#recall5">recall@5</a></th>
+        </tr>
+        <tr><td>by meaning only</td><td class="num">0.324</td><td class="num">0.618</td><td class="num">0.520</td></tr>
+        <tr><td>by exact words only</td><td class="num">0.324</td><td class="num">0.471</td><td class="num">0.402</td></tr>
+        <tr><td>both, weighted equally</td><td class="num">0.382</td><td class="num">0.647</td><td class="num">0.534</td></tr>
+        <tr class="ship"><td>both, tuned <span class="small">(shipped)</span></td><td class="num">0.353</td><td class="num">0.676</td><td class="num">0.578</td></tr>
+      </table>
+      <p class="small">
+        Combining the two searches naively gained nothing — it won four questions and lost
+        five, because the merge rewards chunks <i>both</i> searches agree on and buries one
+        that only a single search found. The fix was to weight them: each search contributes
+        a score of 1/(5 + its rank), and the word-search side is multiplied by <b>0.3</b>
+        before the two are added. The weaker search still breaks ties and still rescues the
+        questions only it can find, without outvoting the stronger one. The 0.3 was chosen
+        on a development split from a grid of 30 combinations.
+      </p>
+    </aside>
+
+    <aside class="panel">
+      <h2>Quality of the answers</h2>
+      <table>
+        <tr><td><a href="metrics.html#correctness">is the answer right?</a></td><td class="num">0.375</td></tr>
+        <tr><td><a href="metrics.html#refusal">does it know when to say no?</a></td><td class="num">0.925</td></tr>
+        <tr><td><a href="metrics.html#falserefusal">how often it declines unnecessarily</a></td><td class="num">0.059</td></tr>
+        <tr><td><a href="metrics.html#routing">understanding what kind of question it is</a></td><td class="num">1.000</td></tr>
+        <tr><td><a href="metrics.html#followup">handling a follow-up question</a></td><td class="num">13/18</td></tr>
+      </table>
+    </aside>
+
+    <aside class="panel">
+      <h2>What it costs, how fast it is</h2>
+      <table>
+        <tr><td><a href="metrics.html#cost">one question</a></td><td class="num">$0.000517</td></tr>
+        <tr><td><a href="metrics.html#ttft">time to the first word</a></td><td class="num">657 ms</td></tr>
+        <tr><td>the whole answer</td><td class="num">1.76 s</td></tr>
+        <tr><td>the search itself</td><td class="num">2.4 ms</td></tr>
+        <tr><td>container image · cold start</td><td class="num">472 MB · 1.67 s</td></tr>
+      </table>
+    </aside>
+
+    <aside class="panel">
+      <h2>Known limits</h2>
+      <ul class="tight">
+        <li><b>Finding the right chunk is the bottleneck.</b> It succeeds about two-thirds of
+          the time, and nothing after it can recover from a miss.</li>
+        <li><b>The corpus is fixed at 49 papers</b>, so anything outside them gets a refusal.
+          Adding live web search, so questions beyond the corpus could be answered from
+          sources it fetches and cites, is the obvious next piece of work.</li>
+        <li><b>Retrying with a reworded question does not help here.</b> When the grader
+          judges the chunks insufficient, rewording and searching again rescued one question
+          across two runs and lost two. Built, tested, and switched off.</li>
+        <li><b>There is no verification pass over the answer.</b> The plan was a second call
+          to the same model (gpt-4o-mini, the one that writes the answers) to check the
+          first. Measuring the problem it was meant to fix came first, and the problem turned
+          out not to exist: the single “failure” it targeted was a correct refusal phrased
+          without the word the scoring script looked for. Never built.</li>
+        <li><b>This is a personal research project</b>: built, measured, documented and
+          deployed to learn how retrieval-augmented generation works and to read the
+          world-model literature properly at the same time. Suggestions and improvements are
+          very welcome.</li>
+      </ul>
+
+      <div class="links">
+        <a href="https://github.com/selim-ba/ai-rag-arxiv" target="_blank" rel="noopener">Repository ↗</a>
+        <a href="https://www.linkedin.com/in/selim-ben-abdallah/" target="_blank" rel="noopener">LinkedIn ↗</a>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<footer id="foot"></footer>
+
+<script>
+// Plain-language group headings. The kinds come from the recorder; these are what a
+// visitor is actually being shown.
+const KINDS = {
+  works:   "Questions it answers well",
+  catalog: "A question about the library itself",
+  scoped:  "A question naming one specific paper",
+  follow:  "A follow-up that only makes sense after the question before it",
+  refuses: "A question these papers cannot answer",
+  fails:   "A question it gets wrong",
+};
+const ORDER = ["works", "catalog", "scoped", "follow", "refuses", "fails"];
+
+const liveLog = document.getElementById("livelog");
+const statusEl = document.getElementById("status");
+
+const esc = (s) => String(s).replace(/[&<>"']/g, c =>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+// [2106.01345] -> a link. The ids come from the retrieved set, never from the model, which
+// is why they can be linked without checking them.
+const linkCites = (text) => esc(text).replace(/\[(\d{4}\.\d{4,5})\]/g,
+  '[<a href="https://arxiv.org/abs/$1" target="_blank" rel="noopener">$1</a>]');
+
+function sourcesHtml(sources) {
+  if (!sources || !sources.length) return "";
+  const items = sources.map(s =>
+    `<li><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.arxiv_id)}</a> — ${esc(s.title)}${
+      s.section ? ` <span class="small">· ${esc(s.section)}</span>` : ""}</li>`).join("");
+  return `<details class="sources"><summary>see the ${sources.length} chunks it read</summary><ol>${items}</ol></details>`;
+}
+
+function pathBadge(path) {
+  const href = path === "agent" ? "how-it-works.html#agent" : "how-it-works.html#pipeline";
+  const label = path === "agent" ? "agent path ↗" : "pipeline ↗";
+  return `<a class="badge" href="${href}">${label}</a>`;
+}
+
+function turnHtml({asked, resolved, answer, sources, badges, note, refused}) {
+  return `<div class="turn">
+    <div class="q">${esc(asked)}</div>
+    ${resolved ? `<div class="resolved">understood as: “${esc(resolved)}”</div>` : ""}
+    <div class="a${refused ? " refused" : ""}">${linkCites(answer)}</div>
+    ${note || ""}
+    ${sourcesHtml(sources)}
+    <div class="meta">${badges.join("")}</div>
+  </div>`;
+}
+
+function addTurn(target, html) {
+  target.insertAdjacentHTML("beforeend", html);
+  target.lastElementChild.scrollIntoView({behavior: "smooth", block: "nearest"});
+}
+
+const NOTES = {
+  fails: `<div class="note bad"><b>This one is wrong, and it is here on purpose.</b>
+    The chunk that answers it ranks 66th, so the search handed the writer the wrong
+    papers and it wrote fluently from them. Open the chunks below: they are an
+    adversarial-robustness benchmark and a sim-to-real distillation paper, not the two the
+    question asks about. The failure happens before the writing, and the writing gives you
+    no clue.</div>`,
+  refuses: `<div class="note warn">Specific, plausible, and absent from all 49 papers — so
+    it declines instead of guessing.</div>`,
+  catalog: `<div class="note">Answered from the library’s own index with <b>no model call at
+    all</b>. “Which papers do you have” is a fact, and a model asked for a list invents a
+    convincing one.</div>`,
+  scoped: `<div class="note">This paper is filed under the title <i>“Revisiting Feature
+    Prediction for Learning Visual Representations from Video”</i>. Matching the name people
+    actually use takes a hand-written alias table.</div>`,
+};
+
+// Rendered up front and hidden, rather than built on click: the whole set is 25 KB and
+// already in memory, so toggling is instant and nothing re-renders under the reader.
+function recordedHtml(entry, {showQuestion = true} = {}) {
+  const badges = [
+    `<span class="badge">recorded answer</span>`,
+    pathBadge(entry.path),
+    `<span class="badge">${Math.round(entry.retrieve_ms + entry.generate_ms)} ms</span>`,
+    `<span class="badge">$${entry.cost_usd.toFixed(6)}</span>`,
+  ];
+  if (entry.kind === "fails") badges.push(`<span class="badge fail">judged incorrect</span>`);
+  const html = turnHtml({...entry, badges, note: NOTES[entry.kind] || ""});
+  // The first turn of the conversation repeats the question the button already shows.
+  return showQuestion ? html : html.replace(/<div class="q">.*?<\/div>/s, "");
+}
+
+fetch("demo.json").then(r => r.json()).then(d => {
+  let html = "";
+  for (const kind of ORDER) {
+    const group = d.entries.filter(e => e.kind === kind);
+    if (!group.length) continue;
+    const shown = kind === "follow" ? [group[0]] : group;   // the pair opens together
+    html += `<div class="group-label">${esc(KINDS[kind])}</div><div class="qlist">`;
+    html += shown.map(e => {
+      const i = d.entries.indexOf(e);
+      const label = kind === "follow"
+        ? `${e.asked} → “and does it train a policy network?”` : e.asked;
+      // A follow-up only means anything beside the turn before it, so one button opens
+      // both and the second turn keeps its own question line.
+      const body = kind === "follow" && d.entries[i + 1]
+        ? recordedHtml(e, {showQuestion: false}) + recordedHtml(d.entries[i + 1])
+        : recordedHtml(e, {showQuestion: false});
+      return `<button class="qbtn" aria-expanded="false" data-kind="${esc(kind)}">${esc(label)}</button>
+              <div class="answer" hidden>${body}</div>`;
+    }).join("");
+    html += `</div>`;
+  }
+  document.getElementById("chips").innerHTML = html;
+  document.getElementById("foot").textContent =
+    `Answers recorded ${d.recorded_at.slice(0, 10)} from ${d.model} over ${d.chunks_indexed} chunks · `
+    + `the whole set cost $${d.total_cost_usd.toFixed(4)} to produce.`;
+  document.getElementById("chips").addEventListener("click", ev => {
+    const button = ev.target.closest(".qbtn");
+    if (!button) return;
+    const open = button.getAttribute("aria-expanded") === "true";
+    button.setAttribute("aria-expanded", String(!open));
+    button.nextElementSibling.hidden = open;   // click again to put it away
+  });
+}).catch(() => {
+  document.getElementById("chips").innerHTML =
+    `<p class="small">The recorded answers could not be loaded. The live box below still works.</p>`;
+});
+
+// ---- the live path -------------------------------------------------------------
+// Asks /health FIRST. A demo that lets you type, waits six seconds and then says
+// "no budget" is worse than one that says so before you start.
+let conversationId = null;
+
+async function budgetState() {
+  try {
+    const r = await fetch("health");
+    if (!r.ok) return {up: false};
+    const h = await r.json();
+    return {up: true, exhausted: h.budget_exhausted, spent: h.budget_spent_usd, limit: h.budget_usd};
+  } catch { return {up: false}; }
+}
+
+function showBudget(s) {
+  if (!s.up) { statusEl.textContent = "Live answers are offline right now — the recorded ones above still work."; return; }
+  if (s.exhausted) { statusEl.textContent = "Today’s demo budget is spent. The recorded answers above still work; it resets at midnight UTC."; return; }
+  statusEl.textContent =
+    `$${(s.limit - s.spent).toFixed(3)} of today’s $${s.limit.toFixed(2)} demo budget left — about `
+    + `${Math.floor((s.limit - s.spent) / 0.000517)} more questions.`;
+}
+budgetState().then(showBudget);
+
+document.getElementById("askform").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const input = document.getElementById("q");
+  const button = document.getElementById("send");
+  const question = input.value.trim();
+  if (question.length < 3) return;
+
+  button.disabled = true;
+  statusEl.textContent = "Searching the papers and writing an answer…";
+  const started = performance.now();
+
+  try {
+    const r = await fetch("ask", {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({question, conversation_id: conversationId}),
+    });
+    const body = await r.json();
+    const ms = Math.round(performance.now() - started);
+
+    if (!r.ok) {
+      // Every failure carries a `code` to branch on and a request id to quote. Both shown.
+      const notes = {
+        budget_exhausted: "Today’s demo budget is spent — the recorded answers above still work, and it resets at midnight UTC.",
+        rate_limited: "That was a lot of questions very quickly. Give it a few seconds.",
+        upstream_timeout: "The model provider did not answer in time.",
+        upstream_unreachable: "The model provider could not be reached.",
+        misconfigured: "The service is misconfigured — that one is on me, not on you.",
+      };
+      addTurn(liveLog, turnHtml({
+        asked: question,
+        answer: notes[body.code] || body.detail || "Something went wrong.",
+        sources: [],
+        refused: true,
+        badges: [
+          `<span class="badge fail">${esc(body.code || r.status)}</span>`,
+          `<span class="badge">request ${esc(body.request_id || "?")}</span>`,
+        ],
+      }));
+      statusEl.textContent = "";
+      button.disabled = false;
+      return;
+    }
+
+    conversationId = body.conversation_id;
+    addTurn(liveLog, turnHtml({
+      asked: body.question,
+      resolved: body.resolved_question,
+      answer: body.answer,
+      sources: body.sources,
+      refused: body.refused,
+      badges: [
+        `<span class="badge live">live answer</span>`,
+        pathBadge(body.mode),
+        `<span class="badge">${ms} ms</span>`,
+        `<span class="badge">request ${esc(body.request_id)}</span>`,
+      ],
+    }));
+    input.value = "";
+    budgetState().then(showBudget);
+  } catch {
+    statusEl.textContent = "Could not reach the service. The recorded answers above still work.";
+  }
+  button.disabled = false;
+});
+</script>
+</body>
+</html>

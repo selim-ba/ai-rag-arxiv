@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The two paths — Agentic RAG for World Models &amp; JEPA Research</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .flow{display:flex;flex-direction:column;gap:0;margin:14px 0 6px}
+  .step{border:1px solid var(--line);border-radius:9px;padding:10px 13px;background:var(--bg)}
+  .step b{display:block;font-size:.95rem}
+  .step span{font-size:.85rem;color:var(--muted)}
+  .arrow{align-self:center;color:var(--muted);font-size:1.1rem;line-height:1;padding:5px 0}
+  .branch{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media (max-width:640px){ .branch{grid-template-columns:1fr} }
+  .step.accent{border-color:var(--accent)}
+  .step.warnb{border-color:var(--warn)}
+  .legend{font-size:.85rem;color:var(--muted);margin-top:4px}
+</style>
+</head>
+<body>
+<header>
+  <a class="back" href="/">← back to the demo</a>
+  <h1>The two paths a question can take</h1>
+  <p>
+    Every answer on the demo is labelled <b>pipeline</b> or <b>agent path</b>. They are two
+    different routes through the same system, and the difference is measurable, which is
+    why the labels are shown rather than hidden.
+  </p>
+</header>
+
+<div class="page">
+
+  <div class="panel" id="pipeline">
+    <h2>The pipeline — what most answers use</h2>
+    <p class="small">
+      The direct route: search, then answer. No decisions, no extra model calls. This is the
+      configuration every published number on the front page describes.
+    </p>
+    <div class="flow">
+      <div class="step"><b>Your question</b><span>as typed</span></div>
+      <div class="arrow">↓</div>
+      <div class="step"><b>Search the 874 chunks</b>
+        <span>each paper is split into chunks of a few hundred words, and every chunk is
+        stored twice over: as an embedding that captures meaning, and as a word index. Both
+        are searched at once and the two rankings are merged. Takes about 2
+        milliseconds.</span></div>
+      <div class="arrow">↓</div>
+      <div class="step accent"><b>Answer from those chunks, or refuse</b>
+        <span>the model is shown the five best-ranked chunks and nothing else, so anything
+        it says has to come from them. It never writes the arXiv numbers itself; it points
+        at a chunk, and the real number is filled in afterwards from the search results,
+        which is why a citation on this page always leads to a paper that exists. If the
+        chunks do not support an answer, it says so.</span></div>
+    </div>
+  </div>
+
+  <div class="panel" id="agent">
+    <h2>The agent path — used where deciding helps</h2>
+    <p class="small">
+      Adds two things: a <b>router</b> that decides what kind of question this is before
+      searching, and a <b>grader</b> that checks the retrieved chunks before answering.
+    </p>
+    <div class="flow">
+      <div class="step"><b>Your question</b></div>
+      <div class="arrow">↓</div>
+      <div class="step"><b>Route — what kind of question is this?</b>
+        <span>about the papers in general · about specific named papers · or about the
+        library itself</span></div>
+      <div class="arrow">↓</div>
+      <div class="branch">
+        <div class="step accent"><b>A question about the library</b>
+          <span>“which papers do you have?” is a question about the catalogue, not about
+          the research. It is answered straight from the list of indexed papers, with
+          <b>no model involved at all</b> — asked to produce a list of papers, a language
+          model will happily write a convincing one that does not exist.</span></div>
+        <div class="step"><b>A question about the research</b>
+          <span>search the chunks, narrowed to the papers you named if you named any.
+          “V-JEPA” is matched to a paper filed as <i>Revisiting Feature Prediction…</i>
+          through a hand-written table of the names people actually use.</span></div>
+      </div>
+      <div class="arrow">↓</div>
+      <div class="step"><b>Grade — can these chunks answer it?</b>
+        <span>a second, cheap model call reads the retrieved chunks next to the question
+        and answers yes or no. To say yes it must also copy out the exact sentence that
+        supports it; that quote is then checked against the chunk in code, and a quote that
+        cannot be found there is thrown away. So the grader is taken at its word only when
+        its word can be verified. When it says no, the question is left to the generator,
+        which refuses rather than guessing.</span></div>
+      <div class="arrow">↓</div>
+      <div class="step accent"><b>Answer, or refuse</b></div>
+    </div>
+    <div class="note warn">
+      <b>Why it is not the default, with numbers.</b> Narrowing the search to named papers
+      finds two more answers on the 34-question test set — and makes the system answer two
+      questions it should have refused, because a question scoped to a plausible paper hands
+      the generator something that looks like evidence. Refusal accuracy falls from 0.925 to
+      0.875. For a system whose main claim is that it declines what it cannot support, that
+      is not a good trade, so routing is used only where it is unambiguously the point.
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Which path answers which question</h2>
+    <ul class="tight">
+      <li><b>Anything you type into the box</b> takes the pipeline. It is the default, and
+        the configuration every number on the front page was measured on.</li>
+      <li><b>“Which papers do you have?”</b> takes the agent path, because recognising that
+        kind of question is the router's whole job — and the answer then costs nothing.</li>
+      <li><b>A question naming one paper</b> takes the agent path in the recorded examples,
+        to show the name-matching at work.</li>
+    </ul>
+    <p class="small">
+      The rule underneath: the pipeline is used whenever deciding first would be a risk, and
+      the agent path whenever deciding first is the point.
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>What both paths share</h2>
+    <ul class="tight">
+      <li><b>Citations cannot be fabricated.</b> The model never sees an arXiv number — it
+        points at a chunk, and the number is filled in from the search results afterwards.
+        This was not a precaution: an early version invented <code>2606.09985</code> for a
+        paper numbered <code>2506.09985</code>.</li>
+      <li><b>Follow-up questions are rewritten first.</b> “and does it train a policy
+        network?” becomes “Does PlaNet train a policy network?” <i>before</i> anything
+        searches, so every component sees one self-contained question. The rewrite is shown
+        to you, because a question answered differently from the one you typed is something
+        you should be able to see.</li>
+      <li><b>Refusal is a real outcome</b>, not an error. Six deliberately unanswerable
+        questions sit in the test set for exactly this reason, and getting them right counts
+        as much as answering the rest.</li>
+    </ul>
+  </div>
+</div>
+<footer>Every claim on this page has a number behind it on the front page, and a method behind that in the repository.</footer>
+</body>
+</html>

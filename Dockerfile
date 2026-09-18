@@ -62,6 +62,10 @@ RUN pip install --no-deps .
 # out: the index is the artefact, the PDFs are how it was made.
 COPY data/index/ ./data/index/
 
+# The landing page and its recorded answers: two files, about 45 KB. They are copied last
+# because they change most often - a re-recording must not invalidate the dependency layer.
+COPY web/ ./web/
+
 # `config.py` resolves data_dir relative to the working directory, so this is where
 # `data/index` must land, and where the embedding cache will want to write. That write is
 # deliberately not solved yet - step 5 runs the container read-only to find it.

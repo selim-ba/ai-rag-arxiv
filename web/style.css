@@ -1,0 +1,43 @@
+/* Shared by every page. One file rather than four copies: the pages are meant to feel
+   like one thing, and a colour changed in three places is a colour changed in two. */
+:root{
+  --bg:#fbfbfa; --panel:#fff; --ink:#1a1a18; --muted:#6b6b63; --line:#e3e2dd;
+  --accent:#4a5d3a; --accent-soft:#eef1e9; --warn:#8a5a2b; --warn-soft:#faf1e6;
+  --bad:#8b3a3a; --bad-soft:#f9ecec; --radius:10px;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#16161a; --panel:#1d1d22; --ink:#e9e9e4; --muted:#9b9b93; --line:#2e2e35;
+    --accent:#a3c07d; --accent-soft:#23281d; --warn:#d4a373; --warn-soft:#2a221a;
+    --bad:#d98c8c; --bad-soft:#2b1e1e;
+  }
+}
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+a{color:var(--accent)}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.87em}
+header{padding:22px 20px 6px;max-width:1400px;margin:0 auto}
+header h1{margin:0;font-size:1.32rem;letter-spacing:-.01em}
+header p{margin:8px 0 0;color:var(--muted);max-width:74ch}
+header .back{display:inline-block;margin-bottom:10px;font-size:.85rem;text-decoration:none}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
+.panel h2{margin:0 0 4px;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.panel h3{margin:18px 0 6px;font-size:.95rem}
+.panel h3:first-of-type{margin-top:10px}
+.small{font-size:.8rem;color:var(--muted)}
+ul.tight{margin:6px 0;padding-left:18px;font-size:.87rem}
+ul.tight li{margin-bottom:4px}
+table{border-collapse:collapse;width:100%;font-size:.84rem;margin:4px 0 2px}
+th,td{text-align:left;padding:4px 8px 4px 0;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:500}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+tr.ship td{font-weight:650}
+.note{background:var(--accent-soft);border-radius:8px;padding:9px 11px;font-size:.85rem;margin-top:8px}
+.note.bad{background:var(--bad-soft)}
+.note.warn{background:var(--warn-soft)}
+footer{max-width:1400px;margin:0 auto;padding:18px 20px 34px;color:var(--muted);font-size:.79rem}
+/* one-column reading pages */
+.page{max-width:900px;margin:0 auto;padding:16px 20px 40px;display:flex;flex-direction:column;gap:16px}

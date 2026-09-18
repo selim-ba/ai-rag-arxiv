@@ -492,3 +492,72 @@ def test_the_content_type_is_an_event_stream(client, fake_stream):
     r = client.post("/ask/stream", json={"question": "does PlaNet plan?"})
     assert r.headers["content-type"].startswith("text/event-stream")
     assert r.headers["x-accel-buffering"] == "no"
+
+
+# -- Stage 7: the landing page ----------------------------------------------------
+
+
+def test_the_landing_page_is_served_from_the_api(client):
+    """Same origin as `/ask`, so the live box needs no CORS and no second deployment."""
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "Agentic RAG" in response.text
+
+
+def test_the_other_pages_are_served_too(client):
+    """Four pages, one origin: the demo, the corpus, the two paths, and what the numbers
+    mean. Mounted rather than routed one by one."""
+    for page in ("papers.html", "how-it-works.html", "metrics.html", "style.css"):
+        assert client.get(f"/{page}").status_code == 200, page
+
+
+def test_the_paper_list_comes_from_the_index_not_from_a_file(client):
+    """A list maintained by hand beside an index built by a script is wrong the first time
+    either changes. This one is the index.
+
+    The store is swapped here rather than relying on the fixture's `chunks_by_id`: this
+    endpoint reads `app.state.store`, which the lifespan loads from disk. Without the swap
+    the test asserts against whatever index happens to be on the machine - 874 chunks on
+    this one, a 503 on a checkout that has not run `make index`."""
+
+    class FakeStore:
+        chunks = CHUNKS
+
+        def __len__(self):
+            return len(CHUNKS)
+
+    previous = client.app.state.store
+    client.app.state.store = FakeStore()
+    try:
+        body = client.get("/papers.json").json()
+    finally:
+        client.app.state.store = previous
+
+    assert body["chunks_indexed"] == len(CHUNKS)
+    ids = [p["arxiv_id"] for p in body["papers"]]
+    assert ids == sorted(ids), "listed in a stable order"
+    assert sum(p["chunks"] for p in body["papers"]) == len(CHUNKS)
+    assert body["papers"][0]["title"]
+
+
+def test_the_api_still_wins_over_the_static_mount(client, monkeypatch):
+    """The mount is at "/" and Starlette matches in order, so it must be added last. If it
+    ever moves above the routes, this is what notices - `/health` would start returning a
+    404 from the file server instead of the service's own answer."""
+    assert client.get("/health").json()["status"] == "ok"
+
+
+def test_the_recorded_answers_are_served_beside_it(client):
+    """The common visit is someone clicking an example and reading it. Served from a file,
+    that costs nothing and still works when the day's budget is spent."""
+    body = client.get("/demo.json").json()
+    assert body["entries"], "no recorded answers"
+    assert {e["kind"] for e in body["entries"]} >= {"works", "refuses", "fails"}
+    assert all(e["path"] in ("pipeline", "agent") for e in body["entries"])
+
+
+def test_the_page_is_found_relative_to_the_working_directory():
+    """The bug this catches: a path built from `__file__` works on a laptop and climbs out
+    into site-packages inside the image, where the page silently 404s."""
+    assert not api.WEB.is_absolute()

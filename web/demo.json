@@ -1,0 +1,575 @@
+{
+ "recorded_at": "2026-09-18T16:43:46+00:00",
+ "version": "0.1.0",
+ "model": "gpt-4o-mini",
+ "chunks_indexed": 874,
+ "total_cost_usd": 0.006251,
+ "entries": [
+  {
+   "kind": "works",
+   "path": "pipeline",
+   "asked": "How does PlaNet search for a good action sequence?",
+   "resolved": null,
+   "answer": "PlaNet searches for a good action sequence using the Cross Entropy Method (CEM), which is a population-based optimization algorithm. It infers a distribution over action sequences that maximize the expected reward by sampling candidate action sequences, evaluating them under the learned dynamics model, and re-fitting the belief to the top action sequences over several iterations [1811.04551]. The planning process allows the agent to adapt its plan based on new observations, meaning it replans at each step [2107.08241][1811.04551]. This approach enables PlaNet to operate purely in latent space, facilitating fast evaluation of large batches of action sequences [1811.04551].",
+   "citations": [
+    "1811.04551",
+    "2107.08241"
+   ],
+   "refused": false,
+   "sources": [
+    {
+     "chunk_id": "2107.08241::17",
+     "arxiv_id": "2107.08241",
+     "title": "High-Accuracy Model-Based Reinforcement Learning, a Survey",
+     "section": "Latent Models",
+     "url": "https://arxiv.org/abs/2107.08241"
+    },
+    {
+     "chunk_id": "1811.04551::12",
+     "arxiv_id": "1811.04551",
+     "title": "Learning Latent Dynamics for Planning from Pixels",
+     "section": "Experiments",
+     "url": "https://arxiv.org/abs/1811.04551"
+    },
+    {
+     "chunk_id": "1811.04551::4",
+     "arxiv_id": "1811.04551",
+     "title": "Learning Latent Dynamics for Planning from Pixels",
+     "section": "Latent Space Planning",
+     "url": "https://arxiv.org/abs/1811.04551"
+    },
+    {
+     "chunk_id": "1811.04551::14",
+     "arxiv_id": "1811.04551",
+     "title": "Learning Latent Dynamics for Planning from Pixels",
+     "section": "Method",
+     "url": "https://arxiv.org/abs/1811.04551"
+    },
+    {
+     "chunk_id": "1811.04551::3",
+     "arxiv_id": "1811.04551",
+     "title": "Learning Latent Dynamics for Planning from Pixels",
+     "section": "Latent Space Planning",
+     "url": "https://arxiv.org/abs/1811.04551"
+    }
+   ],
+   "trace": [],
+   "retrieve_ms": 134.9,
+   "generate_ms": 3058.8,
+   "tokens_in": 2970,
+   "tokens_out": 124,
+   "cost_usd": 0.00052
+  },
+  {
+   "kind": "works",
+   "path": "pipeline",
+   "asked": "What pieces make up the latent dynamics model in Dreamer?",
+   "resolved": null,
+   "answer": "The latent dynamics model in Dreamer consists of three components: the representation model, the transition model, and the reward model. The representation model encodes observations and actions to create continuous vector-valued model states, the transition model predicts future model states without seeing the corresponding observations, and the reward model predicts the rewards given the model states [1912.01603].",
+   "citations": [
+    "1912.01603"
+   ],
+   "refused": false,
+   "sources": [
+    {
+     "chunk_id": "1912.01603::3",
+     "arxiv_id": "1912.01603",
+     "title": "Dream to Control: Learning Behaviors by Latent Imagination",
+     "section": "Introduction",
+     "url": "https://arxiv.org/abs/1912.01603"
+    },
+    {
+     "chunk_id": "1912.01603::4",
+     "arxiv_id": "1912.01603",
+     "title": "Dream to Control: Learning Behaviors by Latent Imagination",
+     "section": "Introduction",
+     "url": "https://arxiv.org/abs/1912.01603"
+    },
+    {
+     "chunk_id": "2606.16605::10",
+     "arxiv_id": "2606.16605",
+     "title": "ARB4WM: An Adversarial Robustness Benchmark for World Models in Continuous Control",
+     "section": "Unified Attack Interface for Dreamer-family",
+     "url": "https://arxiv.org/abs/2606.16605"
+    },
+    {
+     "chunk_id": "1912.01603::1",
+     "arxiv_id": "1912.01603",
+     "title": "Dream to Control: Learning Behaviors by Latent Imagination",
+     "section": "Introduction",
+     "url": "https://arxiv.org/abs/1912.01603"
+    },
+    {
+     "chunk_id": "2606.16605::6",
+     "arxiv_id": "2606.16605",
+     "title": "ARB4WM: An Adversarial Robustness Benchmark for World Models in Continuous Control",
+     "section": "World-Model Reinforcement Learning",
+     "url": "https://arxiv.org/abs/2606.16605"
+    }
+   ],
+   "trace": [],
+   "retrieve_ms": 6.2,
+   "generate_ms": 2112.4,
+   "tokens_in": 3269,
+   "tokens_out": 70,
+   "cost_usd": 0.000532
+  },
+  {
+   "kind": "works",
+   "path": "pipeline",
+   "asked": "Dreamer only imagines a fixed number of steps ahead. How does it avoid becoming shortsighted?",
+   "resolved": null,
+   "answer": "Dreamer avoids becoming shortsighted by learning a value model that estimates rewards beyond the fixed imagination horizon. This allows the agent to consider rewards that extend beyond the immediate future, thus optimizing its policy based on a broader perspective of potential outcomes. The action model and value model are trained cooperatively, enabling the action model to maximize an estimate of the value while the value model adjusts to match this estimate as the action model evolves [1912.01603]. This approach helps Dreamer to effectively learn long-horizon behaviors in complex environments [1912.01603].",
+   "citations": [
+    "1912.01603"
+   ],
+   "refused": false,
+   "sources": [
+    {
+     "chunk_id": "2303.14889::11",
+     "arxiv_id": "2303.14889",
+     "title": "Model-Based Reinforcement Learning with Isolated Imaginations",
+     "section": "Method",
+     "url": "https://arxiv.org/abs/2303.14889"
+    },
+    {
+     "chunk_id": "1912.01603::4",
+     "arxiv_id": "1912.01603",
+     "title": "Dream to Control: Learning Behaviors by Latent Imagination",
+     "section": "Introduction",
+     "url": "https://arxiv.org/abs/1912.01603"
+    },
+    {
+     "chunk_id": "1912.01603::14",
+     "arxiv_id": "1912.01603",
+     "title": "Dream to Control: Learning Behaviors by Latent Imagination",
+     "section": "Conclusion",
+     "url": "https://arxiv.org/abs/1912.01603"
+    },
+    {
+     "chunk_id": "1912.01603::1",
+     "arxiv_id": "1912.01603",
+     "title": "Dream to Control: Learning Behaviors by Latent Imagination",
+     "section": "Introduction",
+     "url": "https://arxiv.org/abs/1912.01603"
+    },
+    {
+     "chunk_id": "1912.01603::5",
+     "arxiv_id": "1912.01603",
+     "title": "Dream to Control: Learning Behaviors by Latent Imagination",
+     "section": "Introduction",
+     "url": "https://arxiv.org/abs/1912.01603"
+    }
+   ],
+   "trace": [],
+   "retrieve_ms": 7.3,
+   "generate_ms": 2361.1,
+   "tokens_in": 3479,
+   "tokens_out": 106,
+   "cost_usd": 0.000585
+  },
+  {
+   "kind": "works",
+   "path": "pipeline",
+   "asked": "Why does JEPA training collapse to trivial solutions, and what constraint was proposed against it?",
+   "resolved": null,
+   "answer": "JEPA training collapses to trivial solutions due to excessive representational variance that arises from a bias-variance tradeoff when there are insufficient structural constraints [2605.09241]. To mitigate this issue, the proposed constraint involves applying Gaussian constraints in multiple random subspaces rather than in the original embedding space, which helps to relax the global constraint while preserving its anti-collapse effect [2605.09241]. This approach aims to achieve a better balance between training stability and representation flexibility.",
+   "citations": [
+    "2605.09241"
+   ],
+   "refused": false,
+   "sources": [
+    {
+     "chunk_id": "2509.12249::2",
+     "arxiv_id": "2509.12249",
+     "title": "Why and How Auxiliary Tasks Improve JEPA Representations",
+     "section": "Introduction",
+     "url": "https://arxiv.org/abs/2509.12249"
+    },
+    {
+     "chunk_id": "2509.12249::1",
+     "arxiv_id": "2509.12249",
+     "title": "Why and How Auxiliary Tasks Improve JEPA Representations",
+     "section": "Abstract",
+     "url": "https://arxiv.org/abs/2509.12249"
+    },
+    {
+     "chunk_id": "2608.05720::15",
+     "arxiv_id": "2608.05720",
+     "title": "PhyLatent: Learning Dynamics-Relevant Representations for JEPA World Models",
+     "section": "Conclusion",
+     "url": "https://arxiv.org/abs/2608.05720"
+    },
+    {
+     "chunk_id": "2605.09241::1",
+     "arxiv_id": "2605.09241",
+     "title": "Sub-JEPA: Subspace Gaussian Regularization for Stable End-to-End World Models",
+     "section": "Abstract",
+     "url": "https://arxiv.org/abs/2605.09241"
+    },
+    {
+     "chunk_id": "2605.25313::4",
+     "arxiv_id": "2605.25313",
+     "title": "UWM-JEPA: Predictive World Models That Imagine in Belief Space",
+     "section": "Belief-State JEPA",
+     "url": "https://arxiv.org/abs/2605.25313"
+    }
+   ],
+   "trace": [],
+   "retrieve_ms": 12.0,
+   "generate_ms": 2367.6,
+   "tokens_in": 1982,
+   "tokens_out": 90,
+   "cost_usd": 0.000351
+  },
+  {
+   "kind": "works",
+   "path": "pipeline",
+   "asked": "What is a recurrent state-space model, and why split the state in two?",
+   "resolved": null,
+   "answer": "A recurrent state-space model (RSSM) is a type of latent dynamics model that predicts future states in a compact latent space, allowing for robust planning and learning from high-dimensional observations. The state is split into two parts: a stochastic part (st) that captures uncertainty and multiple possible futures, and a deterministic part (ht) that retains information from previous states, enabling the model to remember information over multiple time steps and facilitating gradient-based optimization [1811.04551][1811.04551][2210.11698]. This design helps address the limitations of purely stochastic models, which struggle to reliably remember information across time steps [1811.04551].",
+   "citations": [
+    "1811.04551",
+    "2210.11698"
+   ],
+   "refused": false,
+   "sources": [
+    {
+     "chunk_id": "1811.04551::6",
+     "arxiv_id": "1811.04551",
+     "title": "Learning Latent Dynamics for Planning from Pixels",
+     "section": "Recurrent State Space Model",
+     "url": "https://arxiv.org/abs/1811.04551"
+    },
+    {
+     "chunk_id": "1811.04551::5",
+     "arxiv_id": "1811.04551",
+     "title": "Learning Latent Dynamics for Planning from Pixels",
+     "section": "Recurrent State Space Model",
+     "url": "https://arxiv.org/abs/1811.04551"
+    },
+    {
+     "chunk_id": "1811.04551::7",
+     "arxiv_id": "1811.04551",
+     "title": "Learning Latent Dynamics for Planning from Pixels",
+     "section": "Recurrent State Space Model",
+     "url": "https://arxiv.org/abs/1811.04551"
+    },
+    {
+     "chunk_id": "2210.11698::2",
+     "arxiv_id": "2210.11698",
+     "title": "Learning Robust Dynamics through Variational Sparse Gating",
+     "section": "Introduction",
+     "url": "https://arxiv.org/abs/2210.11698"
+    },
+    {
+     "chunk_id": "2010.02193::3",
+     "arxiv_id": "2010.02193",
+     "title": "Mastering Atari with Discrete World Models",
+     "section": "Introduction",
+     "url": "https://arxiv.org/abs/2010.02193"
+    }
+   ],
+   "trace": [],
+   "retrieve_ms": 14.5,
+   "generate_ms": 4890.1,
+   "tokens_in": 2901,
+   "tokens_out": 122,
+   "cost_usd": 0.000508
+  },
+  {
+   "kind": "catalog",
+   "path": "agent",
+   "asked": "Which papers do you have indexed?",
+   "resolved": null,
+   "answer": "This index contains 49 papers: World Models (Ha and Schmidhuber) (1803.10122); PlaNet (1811.04551); Dreamer (1912.01603); Dreaming: Model-based Reinforcement Learning (2007.14535); DreamerV2 (2010.02193); Models, Pixels, and Rewards: Evaluating Desi (2012.04603); LatCo (2106.13229); High-Accuracy Model-Based Reinforcement Lear (2107.08241); IRIS (2209.00588); VSG (2210.11698); DreamerV3 (2301.04104); I-JEPA (2301.08243); Continual Visual Reinforcement Learning with (2303.06572); Iso-Dream (2303.14889); ContextWM (2305.18499); TWIST (2311.03622); Simplifying Latent Dynamics with Softly Stat (2401.17835); Genie (2402.15391); Dreaming of Many Worlds: Learning Contextual (2403.10967); V-JEPA (2404.08471); How JEPA Avoids Noisy Features: The Implicit (2407.03475); Denoising with a Joint-Embedding Predictive  (2410.03755); SOLD (2410.08822); Connecting Joint-Embedding Predictive Archit (2410.19560); Recurrent Joint Embedding Predictive Archite (2411.16695); Navigation World Models (2412.03572); Video Representation Learning with Joint-Emb (2412.10925); JEPA for RL: Investigating Joint-Embedding P (2504.16591); V-JEPA 2 (2506.09985); Why and How Auxiliary Tasks Improve JEPA Rep (2509.12249); Gaussian Embeddings: How JEPAs Secretly Lear (2510.05949); Semantic World Models (2510.19818); Value-guided action planning with JEPA world (2601.00844); Is the reconstruction loss culprit? An attem (2603.14131); Var-JEPA (2603.20111); Sub-JEPA (2605.09241); JEDI (2605.13013); Factorized Latent Dynamics for Video JEPA: A (2605.17165); UWM-JEPA (2605.25313); ARB4WM (2606.16605); A Generalization Theory for JEPA-Based World (2606.27014); A Path-Space Formulation of Prediction in Wo (2606.28751); Delta-JEPA (2606.31232); SiamJEPA (2607.04044); Branch-JEPA (2607.05238); PhyLatent (2608.05720); Is Forward Prediction Enough? Physical State (2608.06799); AC-MTM (2608.17542); Flow-JEPA (2608.29029).",
+   "citations": [],
+   "refused": false,
+   "sources": [],
+   "trace": [
+    "route -> catalog  (The question is about the corpus itself.)",
+    "catalog -> listed 49 papers"
+   ],
+   "retrieve_ms": 0.0,
+   "generate_ms": 0.0,
+   "tokens_in": 1684,
+   "tokens_out": 25,
+   "cost_usd": 0.000268
+  },
+  {
+   "kind": "scoped",
+   "path": "agent",
+   "asked": "In V-JEPA, how is masking done?",
+   "resolved": null,
+   "answer": "In V-JEPA, masking is performed using a multi-block strategy, where several spatially continuous blocks are sampled from the video. These blocks can overlap and are repeated across the entire temporal dimension of the video. Specifically, the masking involves two types of masks: short-range masks, which cover 15% of each frame using 8 randomly sampled target blocks, and long-range masks, which cover 70% of each frame using 2 randomly sampled target blocks. The average masking ratio is approximately 90% due to the union of these sampled blocks [2404.08471].",
+   "citations": [
+    "2404.08471"
+   ],
+   "refused": false,
+   "sources": [
+    {
+     "chunk_id": "2404.08471::16",
+     "arxiv_id": "2404.08471",
+     "title": "Revisiting Feature Prediction for Learning Visual Representations from Video",
+     "section": "Introduction",
+     "url": "https://arxiv.org/abs/2404.08471"
+    },
+    {
+     "chunk_id": "2404.08471::9",
+     "arxiv_id": "2404.08471",
+     "title": "Revisiting Feature Prediction for Learning Visual Representations from Video",
+     "section": "Introduction",
+     "url": "https://arxiv.org/abs/2404.08471"
+    },
+    {
+     "chunk_id": "2404.08471::15",
+     "arxiv_id": "2404.08471",
+     "title": "Revisiting Feature Prediction for Learning Visual Representations from Video",
+     "section": "Introduction",
+     "url": "https://arxiv.org/abs/2404.08471"
+    },
+    {
+     "chunk_id": "2404.08471::3",
+     "arxiv_id": "2404.08471",
+     "title": "Revisiting Feature Prediction for Learning Visual Representations from Video",
+     "section": "Introduction",
+     "url": "https://arxiv.org/abs/2404.08471"
+    },
+    {
+     "chunk_id": "2404.08471::5",
+     "arxiv_id": "2404.08471",
+     "title": "Revisiting Feature Prediction for Learning Visual Representations from Video",
+     "section": "Introduction",
+     "url": "https://arxiv.org/abs/2404.08471"
+    }
+   ],
+   "trace": [
+    "route -> filtered ['2404.08471'] (The question is scoped to a specific paper.)",
+    "retrieve('In V-JEPA, how is masking done?') -> 5 hits in 6.6ms",
+    "grade -> relevant",
+    "generate -> 1 citations"
+   ],
+   "retrieve_ms": 6.6,
+   "generate_ms": 2145.2,
+   "tokens_in": 9337,
+   "tokens_out": 250,
+   "cost_usd": 0.001551
+  },
+  {
+   "kind": "refuses",
+   "path": "pipeline",
+   "asked": "What learning rate was used to train Dreamer?",
+   "resolved": null,
+   "answer": "INSUFFICIENT_CONTEXT. The passages do not provide information about the learning rate used to train Dreamer.",
+   "citations": [],
+   "refused": true,
+   "sources": [
+    {
+     "chunk_id": "1912.01603::12",
+     "arxiv_id": "1912.01603",
+     "title": "Dream to Control: Learning Behaviors by Latent Imagination",
+     "section": "Experiments",
+     "url": "https://arxiv.org/abs/1912.01603"
+    },
+    {
+     "chunk_id": "2301.04104::12",
+     "arxiv_id": "2301.04104",
+     "title": "Mastering Diverse Domains through World Models",
+     "section": "Conclusion",
+     "url": "https://arxiv.org/abs/2301.04104"
+    },
+    {
+     "chunk_id": "2301.04104::10",
+     "arxiv_id": "2301.04104",
+     "title": "Mastering Diverse Domains through World Models",
+     "section": "Results",
+     "url": "https://arxiv.org/abs/2301.04104"
+    },
+    {
+     "chunk_id": "2301.04104::9",
+     "arxiv_id": "2301.04104",
+     "title": "Mastering Diverse Domains through World Models",
+     "section": "Results",
+     "url": "https://arxiv.org/abs/2301.04104"
+    },
+    {
+     "chunk_id": "1912.01603::13",
+     "arxiv_id": "1912.01603",
+     "title": "Dream to Control: Learning Behaviors by Latent Imagination",
+     "section": "Experiments",
+     "url": "https://arxiv.org/abs/1912.01603"
+    }
+   ],
+   "trace": [],
+   "retrieve_ms": 10.0,
+   "generate_ms": 1114.6,
+   "tokens_in": 2939,
+   "tokens_out": 22,
+   "cost_usd": 0.000454
+  },
+  {
+   "kind": "fails",
+   "path": "pipeline",
+   "asked": "Both the original World Models paper and Dreamer learn a policy inside a learned model. How does the optimisation differ?",
+   "resolved": null,
+   "answer": "The original World Models paper and Dreamer both utilize a learned model for policy optimization, but they differ in their optimization approaches. The original World Models paper focuses on optimizing the model components to maximize the log-likelihood of their corresponding targets, while Dreamer employs a Recurrent State Space Model (RSSM) and uses an actor-critic algorithm that is trained using synthetic data generated by the world model, where the actor outputs a distribution over actions that maximizes the total expected reward given the current state [2606.16605][2311.03622]. Additionally, Dreamer incorporates a more complex structure with a stochastic state and a deterministic recurrent state, which is concatenated for downstream prediction [2606.16605].",
+   "citations": [
+    "2606.16605",
+    "2311.03622"
+   ],
+   "refused": false,
+   "sources": [
+    {
+     "chunk_id": "2606.16605::6",
+     "arxiv_id": "2606.16605",
+     "title": "ARB4WM: An Adversarial Robustness Benchmark for World Models in Continuous Control",
+     "section": "World-Model Reinforcement Learning",
+     "url": "https://arxiv.org/abs/2606.16605"
+    },
+    {
+     "chunk_id": "2606.16605::3",
+     "arxiv_id": "2606.16605",
+     "title": "ARB4WM: An Adversarial Robustness Benchmark for World Models in Continuous Control",
+     "section": "World Models for Visual Control",
+     "url": "https://arxiv.org/abs/2606.16605"
+    },
+    {
+     "chunk_id": "2311.03622::3",
+     "arxiv_id": "2311.03622",
+     "title": "TWIST: Teacher-Student World Model Distillation for Efficient Sim-to-Real Transfer",
+     "section": "",
+     "url": "https://arxiv.org/abs/2311.03622"
+    },
+    {
+     "chunk_id": "2010.02193::5",
+     "arxiv_id": "2010.02193",
+     "title": "Mastering Atari with Discrete World Models",
+     "section": "Introduction",
+     "url": "https://arxiv.org/abs/2010.02193"
+    },
+    {
+     "chunk_id": "2301.04104::2",
+     "arxiv_id": "2301.04104",
+     "title": "Mastering Diverse Domains through World Models",
+     "section": "Introduction",
+     "url": "https://arxiv.org/abs/2301.04104"
+    }
+   ],
+   "trace": [],
+   "retrieve_ms": 15.5,
+   "generate_ms": 2446.2,
+   "tokens_in": 2900,
+   "tokens_out": 136,
+   "cost_usd": 0.000517
+  },
+  {
+   "kind": "follow",
+   "path": "pipeline",
+   "asked": "How does PlaNet search for a good action sequence?",
+   "resolved": null,
+   "answer": "PlaNet searches for a good action sequence using the Cross Entropy Method (CEM), which is a population-based optimization algorithm. It infers a distribution over action sequences that maximize the expected reward by sampling candidate action sequences, evaluating them under the learned dynamics model, and re-fitting the belief to the top action sequences over several iterations [1811.04551]. The planning process allows the agent to adapt its plan based on new observations, meaning it replans at each step [2107.08241]. This approach enables PlaNet to operate purely in latent space without generating images, facilitating fast evaluation of large batches of action sequences [1811.04551].",
+   "citations": [
+    "1811.04551",
+    "2107.08241"
+   ],
+   "refused": false,
+   "sources": [
+    {
+     "chunk_id": "2107.08241::17",
+     "arxiv_id": "2107.08241",
+     "title": "High-Accuracy Model-Based Reinforcement Learning, a Survey",
+     "section": "Latent Models",
+     "url": "https://arxiv.org/abs/2107.08241"
+    },
+    {
+     "chunk_id": "1811.04551::12",
+     "arxiv_id": "1811.04551",
+     "title": "Learning Latent Dynamics for Planning from Pixels",
+     "section": "Experiments",
+     "url": "https://arxiv.org/abs/1811.04551"
+    },
+    {
+     "chunk_id": "1811.04551::4",
+     "arxiv_id": "1811.04551",
+     "title": "Learning Latent Dynamics for Planning from Pixels",
+     "section": "Latent Space Planning",
+     "url": "https://arxiv.org/abs/1811.04551"
+    },
+    {
+     "chunk_id": "1811.04551::14",
+     "arxiv_id": "1811.04551",
+     "title": "Learning Latent Dynamics for Planning from Pixels",
+     "section": "Method",
+     "url": "https://arxiv.org/abs/1811.04551"
+    },
+    {
+     "chunk_id": "1811.04551::3",
+     "arxiv_id": "1811.04551",
+     "title": "Learning Latent Dynamics for Planning from Pixels",
+     "section": "Latent Space Planning",
+     "url": "https://arxiv.org/abs/1811.04551"
+    }
+   ],
+   "trace": [],
+   "retrieve_ms": 11.6,
+   "generate_ms": 2135.1,
+   "tokens_in": 2970,
+   "tokens_out": 124,
+   "cost_usd": 0.00052
+  },
+  {
+   "kind": "follow",
+   "path": "pipeline",
+   "asked": "and does it train a policy network?",
+   "resolved": "Does PlaNet train a policy network?",
+   "answer": "No, PlaNet does not train an explicit policy network. Instead, it implements a policy through model-predictive control (MPC) planning, selecting the best sequence of future actions based on its learned models, without using a traditional policy or value function network [2107.08241].",
+   "citations": [
+    "2107.08241"
+   ],
+   "refused": false,
+   "sources": [
+    {
+     "chunk_id": "2107.08241::17",
+     "arxiv_id": "2107.08241",
+     "title": "High-Accuracy Model-Based Reinforcement Learning, a Survey",
+     "section": "Latent Models",
+     "url": "https://arxiv.org/abs/2107.08241"
+    },
+    {
+     "chunk_id": "1811.04551::13",
+     "arxiv_id": "1811.04551",
+     "title": "Learning Latent Dynamics for Planning from Pixels",
+     "section": "Related Work",
+     "url": "https://arxiv.org/abs/1811.04551"
+    },
+    {
+     "chunk_id": "1811.04551::3",
+     "arxiv_id": "1811.04551",
+     "title": "Learning Latent Dynamics for Planning from Pixels",
+     "section": "Latent Space Planning",
+     "url": "https://arxiv.org/abs/1811.04551"
+    },
+    {
+     "chunk_id": "1811.04551::11",
+     "arxiv_id": "1811.04551",
+     "title": "Learning Latent Dynamics for Planning from Pixels",
+     "section": "Experiments",
+     "url": "https://arxiv.org/abs/1811.04551"
+    },
+    {
+     "chunk_id": "1811.04551::0",
+     "arxiv_id": "1811.04551",
+     "title": "Learning Latent Dynamics for Planning from Pixels",
+     "section": "Abstract",
+     "url": "https://arxiv.org/abs/1811.04551"
+    }
+   ],
+   "trace": [],
+   "retrieve_ms": 7.6,
+   "generate_ms": 1231.4,
+   "tokens_in": 2746,
+   "tokens_out": 56,
+   "cost_usd": 0.000445
+  }
+ ]
+}
