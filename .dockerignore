@@ -1,0 +1,49 @@
+# What the build is not allowed to see.
+#
+# This file is step one of Stage 6 for a reason: it decides the build CONTEXT - everything
+# the daemon copies before a single instruction runs. Two things follow from that.
+#
+# 1. SECRETS. `.env` in the context is one `COPY . .` away from living in a layer forever,
+#    and `docker history` shows layers to anyone who pulls the image. The rule is that the
+#    key never enters the build at all; it arrives at runtime through the environment.
+# 2. SIZE. Without this file the context here is about 1.6 GB, of which 1.3 GB is a
+#    virtualenv the image must not reuse (it holds macOS arm64 wheels) and 272 MB is the
+#    PDFs the index was built from. With it, the context is roughly 12 MB.
+#
+# The Dockerfile still copies only what it needs - this file is about what is even
+# offered. Excluding a directory here means a later `COPY` of it silently gets nothing,
+# which is the one failure mode of .dockerignore worth remembering.
+
+# Environments and caches that are architecture-specific or simply large
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Secrets and local settings. `.env.example` is deliberately NOT excluded.
+.env
+.env.*
+!.env.example
+.vscode/
+
+# History and working notes
+.git/
+.gitignore
+.learning/
+scratch/
+
+# Data: the index ships, the rest does not.
+#   data/index/          7.2 MB  chunks.jsonl + vectors.npy - the only runtime data
+#   data/papers/         272 MB  source PDFs; the index is the artefact, not these
+#   data/chunks/         2.2 MB  ingestion intermediate
+#   data/embedding_cache/ 30 MB  a runtime WRITE target, decided in step 5, not baked here
+#   data/eval/           1.3 MB  past eval runs
+data/papers/
+data/chunks/
+data/embedding_cache/
+data/eval/
+
+# Build plumbing itself
+Dockerfile*
+.dockerignore

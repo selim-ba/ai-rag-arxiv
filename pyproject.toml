@@ -10,14 +10,26 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "httpx>=0.27",
     "feedparser>=6.0",
-    "pymupdf>=1.24",
-    "tiktoken>=0.7",
     "openai>=1.40",
     "numpy>=1.26",
     "langgraph>=0.2",
 ]
 
 [project.optional-dependencies]
+# Ingestion is optional at RUNTIME. The API reads a prebuilt index; it never parses a PDF
+# and never counts tokens, so `pymupdf` (63 MB in the image) and `tiktoken` (4 MB) are
+# dead weight in a container that only answers questions. Measured, not assumed: the
+# imports live solely in `ingestion/pdf_parser.py` and `ingestion/chunker.py`, and
+# `ingestion/__init__.py` is empty, so importing `Chunk` does not drag the parser in.
+#
+# `feedparser` stays a core dependency on purpose - `agent/tools.py` reaches the arXiv API
+# at request time to answer questions about papers outside the index.
+#
+# `make ingest` and `make index` need this extra. So do the tests.
+ingest = [
+    "pymupdf>=1.24",
+    "tiktoken>=0.7",
+]
 # Reranking is optional: sentence-transformers pulls in torch, which is large and only
 # needed if you actually rerank. `pip install -e ".[rerank]"` when you want it.
 rerank = [

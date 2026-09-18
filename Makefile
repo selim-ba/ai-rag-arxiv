@@ -4,14 +4,14 @@ PYTHON ?= python3
 # `make` swallows anything starting with `--`, so flags have to arrive as a variable.
 ARGS ?=
 
-.PHONY: install dev test lint fmt ingest index check-eval eval retrieval-eval grade-eval route-eval followup-eval label-judge score-judge gold-audit gold-apply clean
+.PHONY: docker-build docker-build-amd64 docker-run install dev test lint fmt ingest index check-eval eval retrieval-eval grade-eval route-eval followup-eval label-judge score-judge gold-audit gold-apply clean
 
 install:
 	@$(PYTHON) -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" \
 		|| (echo "Need Python 3.11+. Got: $$($(PYTHON) --version). Try: make install PYTHON=python3.12"; exit 1)
 	$(PYTHON) -m venv .venv
 	.venv/bin/python -m pip install --upgrade pip
-	.venv/bin/pip install -e ".[dev]"
+	.venv/bin/pip install -e ".[dev,ingest]"
 	@echo ""
 	@echo "Done. In VS Code: Cmd+Shift+P -> 'Python: Select Interpreter' -> ./.venv/bin/python"
 
@@ -63,6 +63,24 @@ gold-audit:
 
 gold-apply:
 	.venv/bin/python -m scripts.gold_audit apply
+
+# Stage 6. IMAGE is overridable so a registry path can be passed in Stage 7.
+IMAGE ?= arxiv-rag
+
+docker-build:
+	docker build -t $(IMAGE) .
+	@docker images $(IMAGE) --format "  {{.Repository}}:{{.Tag}}  {{.Size}}"
+
+# Your laptop is arm64; most cloud runtimes are amd64. Built as a separate target rather
+# than as the default: cross-building under emulation is slow enough to change how often
+# you iterate, so iterate native and cross-build when deploying.
+docker-build-amd64:
+	docker build --platform linux/amd64 -t $(IMAGE):amd64 .
+	@docker images $(IMAGE):amd64 --format "  {{.Repository}}:{{.Tag}}  {{.Size}}"
+
+# The key arrives at runtime, from the environment, never from a layer.
+docker-run:
+	docker run --rm -p 8000:8000 --env-file .env $(IMAGE)
 
 clean:
 	rm -rf .pytest_cache .ruff_cache

@@ -1142,6 +1142,65 @@ works, and the action it takes when it detects a failure is aimed at the wrong f
 
 ---
 
+## Stage 6 - the container
+
+| change | image | rebuild after a source edit |
+|---|---|---|
+| first working image | 574 MB | 15.5 s |
+| dependencies the API never imports moved to an `[ingest]` extra | **472 MB** | 15.5 s |
+| dependency layer keyed on `pyproject.toml` alone | 472 MB | **3.3 s** |
+| multi-stage build | 471 MB | - |
+
+**The build context is 11 MB, from 1.6 GB.** `.dockerignore` excludes the 1.3 GB
+virtualenv (macOS arm64 wheels, useless in a Linux image), 272 MB of source PDFs (the
+index is the artefact; the PDFs are how it was made) and `.env`. The key never enters the
+build at all - it arrives at runtime through the environment, because `docker history`
+shows every layer to anyone who pulls the image.
+
+**102 MB of the image was dependencies the running service never imports.** `pymupdf`
+(63 MB) appears only in `ingestion/pdf_parser.py` and `tiktoken` (4 MB) only in
+`ingestion/chunker.py`; the API reads a prebuilt index and parses nothing. Both moved to
+an `[ingest]` extra that the container does not install. The predicted saving was 67 MB
+and the measured one was 102 MB - the gap is transitive dependencies (`tiktoken` pulls
+`regex` and `requests`, which pull four more), none individually large enough to appear in
+a top-12 listing. `tests/test_packaging.py` imports `arxiv_rag.api.main` **in a
+subprocess** and asserts none of them is in `sys.modules`, because a single convenience
+import in a future module would silently put 67 MB back, visible only as a bigger image
+nobody looks at.
+
+**Layer order is worth 12 seconds on every rebuild.** Docker invalidates every layer after
+the first changed one, so copying the source before installing dependencies re-ran the
+whole install on every edit. Reordered, the dependency layer is keyed on `pyproject.toml`
+alone and a source change costs 2.5 s to reinstall the package. The dependency list is
+read out of `pyproject.toml` at build time with `tomllib` rather than duplicated into a
+`requirements.txt`: a second list is a second thing to forget, and the image would keep
+building happily while installing something the project no longer declares.
+
+### Multi-stage: predicted to save nothing, measured at 1 MB, deleted
+
+Written as an experiment with the decision rule fixed in advance - under 20 MB and it goes
+- and with the expectation recorded before the build: multi-stage pays when the build
+needs a toolchain the runtime does not, and every dependency here installs from a prebuilt
+wheel. 471 MB against 472 MB.
+
+**The instructive part is why the one lever that should have worked did not.** The runtime
+stage ran `pip uninstall -y pip setuptools wheel` against the base image's own installer,
+about 15 MB. It saved nothing, because **deleting a file in a later layer does not shrink
+an image**: the bytes stay in the layer that added them and the deletion is a whiteout
+marker in a new layer on top. The image carries both. Meanwhile the venv in the build
+stage installed a *second* pip, which the builder then removed - earning back exactly the
+weight the venv had introduced. Two moves that cancel, and 1 MB of noise.
+
+The container did answer `/health` with `pip`, `setuptools` and `wheel` gone, so nothing
+in the dependency tree needs `pkg_resources` at runtime. That is now known rather than
+assumed, which is the other thing a rejected experiment is good for.
+
+This is the second performance prediction in the project to be written down before the
+measurement, and the first to be right. The one before it - that sharing one HTTP client
+would save 100-200 ms per call through connection reuse - moved p50 by 4 ms.
+
+---
+
 ## Known limitations
 
 1. **Gold labels are incomplete.** Two of five spot-checked questions were answered
