@@ -55,6 +55,7 @@ from openai import (
     RateLimitError,
 )
 
+from arxiv_rag.llm import MissingAPIKey
 from arxiv_rag.observability import current_request_id, note
 
 log = logging.getLogger(__name__)
@@ -100,7 +101,8 @@ def classify(exc: Exception) -> UpstreamFailure:
             "the service is rate limited by the model provider; try again shortly",
             retry_after=_retry_after(exc),
         )
-    if isinstance(exc, AuthenticationError | PermissionDeniedError | BadRequestError):
+    ours = MissingAPIKey | AuthenticationError | PermissionDeniedError | BadRequestError
+    if isinstance(exc, ours):
         return UpstreamFailure(500, "misconfigured", "the service is misconfigured")
     if isinstance(exc, APIStatusError):
         return UpstreamFailure(502, "upstream_error", "the model provider returned an error")
@@ -133,12 +135,18 @@ def install_error_handlers(app: FastAPI) -> None:
     a future SDK version - which then land on the `internal_error` row instead of escaping
     as a 500 with a stack trace.
 
+    `MissingAPIKey` is registered alongside it because it is ours, not the SDK's: a key
+    that was never configured is a failure this service can name before asking the
+    provider anything. The container checks found that gap - an unset key surfaced as
+    `internal_error`, which tells an operator nothing.
+
     It runs *inside* the request-logging middleware, so these responses still carry an
     `X-Request-ID` and still produce exactly one summary line, now with the failure on it.
     """
 
+    @app.exception_handler(MissingAPIKey)
     @app.exception_handler(OpenAIError)
-    def handle_provider_error(request: Request, exc: OpenAIError) -> JSONResponse:
+    def handle_provider_error(request: Request, exc: Exception) -> JSONResponse:
         failure = classify(exc)
         note(
             upstream_error=type(exc).__name__,

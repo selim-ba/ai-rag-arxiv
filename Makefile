@@ -4,7 +4,7 @@ PYTHON ?= python3
 # `make` swallows anything starting with `--`, so flags have to arrive as a variable.
 ARGS ?=
 
-.PHONY: docker-build docker-build-amd64 docker-run install dev test lint fmt ingest index check-eval eval retrieval-eval grade-eval route-eval followup-eval label-judge score-judge gold-audit gold-apply clean
+.PHONY: docker-build docker-build-amd64 docker-checks docker-run docker-run-readonly install dev test lint fmt ingest index check-eval eval retrieval-eval grade-eval route-eval followup-eval label-judge score-judge gold-audit gold-apply clean
 
 install:
 	@$(PYTHON) -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" \
@@ -81,6 +81,17 @@ docker-build-amd64:
 # The key arrives at runtime, from the environment, never from a layer.
 docker-run:
 	docker run --rm -p 8000:8000 --env-file .env $(IMAGE)
+
+# How a hardened platform would run it: no writes anywhere, no capabilities, no new
+# privileges. If the service needs something it should not, this is where it says so.
+docker-run-readonly:
+	docker run --rm -p 8000:8000 --env-file .env \
+		--read-only --cap-drop ALL --security-opt no-new-privileges $(IMAGE)
+
+# The three failure modes, against the built image, on port 8100 so it does not collide
+# with a server you have running.
+docker-checks:
+	./scripts/container_checks.sh
 
 clean:
 	rm -rf .pytest_cache .ruff_cache

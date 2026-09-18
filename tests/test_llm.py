@@ -13,8 +13,10 @@ SDK already retries twice with exponential backoff and honours Retry-After.
 import pathlib
 import re
 
+import pytest
+
 from arxiv_rag.config import Settings
-from arxiv_rag.llm import get_client
+from arxiv_rag.llm import MissingAPIKey, get_client
 
 
 def test_the_same_settings_give_the_same_client():
@@ -67,3 +69,14 @@ def test_nothing_outside_llm_py_constructs_a_client():
         if path.name != "llm.py" and re.search(r"\bOpenAI\s*\(", path.read_text())
     ]
     assert offenders == [], f"construct clients via llm.get_client: {offenders}"
+
+
+def test_no_key_is_our_error_raised_before_the_sdk_is_touched():
+    """Found by the container checks, not by a unit test: with no key the SDK raises a
+    bare `OpenAIError` from its CONSTRUCTOR - no request attempted, nothing in its typed
+    hierarchy - which classified as `internal_error` and told an operator nothing.
+
+    Asked as a configuration question instead. `/health` has always reported whether a key
+    is set; this is the same question, on the path that needs the answer."""
+    with pytest.raises(MissingAPIKey):
+        get_client(Settings(openai_api_key=""))

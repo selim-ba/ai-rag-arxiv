@@ -37,6 +37,19 @@ from arxiv_rag.observability import request_hook, timing_hook
 log = logging.getLogger(__name__)
 
 
+class MissingAPIKey(RuntimeError):
+    """No key configured, raised before the SDK is asked to do anything.
+
+    Without this the failure is an `OpenAIError` from the client CONSTRUCTOR - no request
+    attempted, nothing in the SDK's typed hierarchy - which classified as `internal_error`
+    and told a caller nothing. Worse, it is indistinguishable from a bare `OpenAIError`
+    raised for an unrelated reason, such as a content filter.
+
+    Detected from configuration instead. `/health` has always reported whether a key is
+    set; this is the same question asked on the path that needs the answer.
+    """
+
+
 @lru_cache(maxsize=8)
 def _build(api_key: str, timeout: float, max_retries: int) -> OpenAI:
     log.info("openai client: timeout=%gs max_retries=%d", timeout, max_retries)
@@ -52,6 +65,8 @@ def _build(api_key: str, timeout: float, max_retries: int) -> OpenAI:
 
 def get_client(settings: Settings) -> OpenAI:
     """The shared client. Every model call in this codebase goes through here."""
+    if not settings.openai_api_key:
+        raise MissingAPIKey("no OpenAI API key configured (set OPENAI_API_KEY)")
     return _build(
         settings.openai_api_key,
         settings.openai_timeout_seconds,

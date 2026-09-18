@@ -23,6 +23,14 @@ make index                # embed and build the vector index
 make dev                  # http://localhost:8000/docs
 ```
 
+Or in a container, with no local Python at all:
+
+```bash
+make docker-build          # 472MB, ~20s cold / 3s after a source change
+make docker-run            # reads OPENAI_API_KEY from .env at RUNTIME, never from a layer
+make docker-checks         # asserts the three defined failure modes still hold
+```
+
 Ask it something:
 
 ```bash
@@ -165,6 +173,19 @@ Provider failures map to defined statuses rather than an untyped 500: a rate lim
 is ours, and returning the upstream 401 would send a caller to fix a request that was
 never the problem.
 
+### The container
+
+A 472MB image on `python:3.12-slim`, running as uid 10001 under
+`--read-only --cap-drop ALL`, healthy 1.67s after start, with no secret in any layer
+(verified with `docker history`, not assumed). 102MB of it was dependencies the API never
+imports — `pymupdf` and `tiktoken` belong to ingestion, and a structural test now fails if
+anything on the request path imports them again.
+
+`make docker-checks` asserts the three ways it is allowed to fail: no index → 503, no key
+→ 500 `misconfigured`, wrong key → 500 `misconfigured` with the key absent from the body.
+Those checks found two defects that 456 unit tests could not, because **unit tests cannot
+see configuration, and configuration is most of what a container changes**.
+
 ### Things that were built, measured, and switched off
 
 * **A rewrite-and-retry loop.** Across two runs it rescued 1 question and lost 2 — both
@@ -184,6 +205,8 @@ src/arxiv_rag/
   api/main.py         FastAPI app; POST /ask and /ask/stream, sessions      (Stage 5)
   api/errors.py       provider failures -> defined statuses and codes      (Stage 5)
   observability.py    request id, retry counting, one JSON line per request (Stage 5)
+Dockerfile            python:3.12-slim, non-root, read-only-safe          (Stage 6)
+scripts/container_checks.sh   the three failure modes, against the image  (Stage 6)
   ingestion/          arXiv -> PDF -> clean text -> chunks       (Stage 1)
   retrieval/          embeddings, BM25, fusion, filters, rerank  (Stages 2-3)
   evaluation/         metrics, LLM judge, quote verification     (Stage 2)

@@ -28,6 +28,7 @@ from arxiv_rag.api import main as api
 from arxiv_rag.api.errors import classify, failure_payload
 from arxiv_rag.api.main import app, get_graph, get_retriever
 from arxiv_rag.ingestion.models import Chunk
+from arxiv_rag.llm import MissingAPIKey
 from arxiv_rag.retrieval.store import SearchHit
 
 REQUEST = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
@@ -128,6 +129,23 @@ def test_our_own_misconfiguration_is_a_500_and_not_the_upstream_4xx(cls, status)
     failure = classify(status_error(cls, status))
     assert failure.status == 500
     assert failure.code == "misconfigured"
+
+
+def test_an_unset_key_is_misconfigured_rather_than_a_mystery():
+    """The container checks caught this one. A key that was never configured is a failure
+    the service can name before asking the provider anything, and `internal_error` is what
+    you report when you do not know - so reporting it here was a lie of omission."""
+    failure = classify(MissingAPIKey("no OpenAI API key configured"))
+    assert (failure.status, failure.code) == (500, "misconfigured")
+
+
+def test_an_unset_key_reaches_the_caller_as_a_defined_failure(client, monkeypatch):
+    """Registered as its own handler: it is ours, not the SDK's, so it is not an
+    `OpenAIError` and would otherwise escape as a 500 with a stack trace."""
+    fails_with(monkeypatch, MissingAPIKey("no OpenAI API key configured"))
+    response = client.post("/ask", json={"question": "does PlaNet plan?"})
+    assert response.status_code == 500
+    assert response.json()["code"] == "misconfigured"
 
 
 def test_a_provider_outage_is_a_bad_gateway():

@@ -57,13 +57,18 @@ class EmbeddingCache:
        atomic on POSIX: readers see either the old file or the new one, never a partial.
     """
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, writes_enabled: bool = True) -> None:
         self.path = path / "cache.json"
         self._data: dict[str, list[float]] = {}
         self._dirty = False
+        # Reading is always allowed. A cache baked into a read-only image is still worth
+        # every hit it serves; only persisting new entries is in question.
+        self._writes_enabled = writes_enabled
         if self.path.exists():
             self._data = json.loads(self.path.read_text())
             log.info("embedding cache: %d entries", len(self._data))
+        if not writes_enabled:
+            log.info("embedding cache: writes disabled; new embeddings are not persisted")
 
     def get(self, key: str) -> list[float] | None:
         return self._data.get(key)
@@ -73,26 +78,42 @@ class EmbeddingCache:
         self._dirty = True
 
     def save(self) -> None:
-        """No-op when nothing was added. Atomic when something was."""
-        if not self._dirty:
+        """No-op when nothing was added, or when writes are off. Atomic when it happens.
+
+        **A failed write here must not fail the request.** The cache saves money; it does
+        not make an answer correct, and a service that returns 500 because an optimisation
+        could not persist has traded a real failure for an imaginary one. The rule this
+        draws is worth stating: a write the system depends on fails loudly, a write that
+        only makes it cheaper degrades quietly and says so once.
+
+        Once rejected, writes stay off for the life of the process. Retrying on every
+        cache miss would turn one `OSError` into one per request, and a read-only
+        filesystem does not become writable while you watch it.
+        """
+        if not self._dirty or not self._writes_enabled:
             return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(self._data))
-        os.replace(tmp, self.path)  # atomic: never leaves a half-written cache
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(self._data))
+            os.replace(tmp, self.path)  # atomic: never leaves a half-written cache
+        except OSError as exc:
+            self._writes_enabled = False
+            log.warning("embedding cache: read-only (%s); continuing without saving", exc)
+            return
         self._dirty = False
         log.info("embedding cache: saved %d entries", len(self._data))
 
 
 @lru_cache(maxsize=8)
-def get_cache(directory: Path) -> EmbeddingCache:
+def get_cache(directory: Path, writes_enabled: bool = True) -> EmbeddingCache:
     """One cache object per directory per process.
 
     The 28MB parse happens on first use and never again. Every caller must go through
     this rather than constructing ``EmbeddingCache`` directly, or the saving is split
     across two objects that do not see each other's writes.
     """
-    return EmbeddingCache(directory)
+    return EmbeddingCache(directory, writes_enabled=writes_enabled)
 
 
 def batched(items: list[str], size: int) -> Iterator[list[str]]:
@@ -109,7 +130,7 @@ def batched(items: list[str], size: int) -> Iterator[list[str]]:
 def embed_texts(texts: list[str], settings: Settings) -> list[list[float]]:
     """Embed a list of texts, returning one vector per input, in order."""
     # Step 1 - open the cache and the client
-    cache = get_cache(settings.embedding_cache_dir)
+    cache = get_cache(settings.embedding_cache_dir, settings.embedding_cache_writes)
     client = _client(settings)
 
     # Step 2 - find cache misses and their indices

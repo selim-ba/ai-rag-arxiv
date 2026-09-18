@@ -1199,6 +1199,85 @@ This is the second performance prediction in the project to be written down befo
 measurement, and the first to be right. The one before it - that sharing one HTTP client
 would save 100-200 ms per call through connection reuse - moved p50 by 4 ms.
 
+### A write that had to become optional, and the rule it drew
+
+Running the container revealed something reading the code had only predicted: on every
+question whose query had not been embedded before, the service **wrote to disk** -
+`embedding cache: saved 1 entries`, into a layer that dies with the container. Read-only
+or as a non-root user, that write is an `OSError` in the middle of a request.
+
+Three options: bake the 30 MB cache into the image (stale the moment anyone asks something
+new), mount a volume (awkward on platforms with ephemeral filesystems), or stop
+persisting. Stopping won, and the measurement afterwards made it look better than the
+argument for it did.
+
+**The rule it draws is worth keeping: a write the system depends on must fail loudly, a
+write that only makes it cheaper must degrade quietly and say so once.** Returning 500
+because an optimisation could not persist trades a real failure for an imaginary one. So
+there are two mechanisms, not one - a setting (`PT_EMBEDDING_CACHE_WRITES=false`, set in
+the image) and an `OSError` guard that disables writes for the life of the process rather
+than retrying on every miss, because a read-only filesystem does not become writable while
+you watch it.
+
+**A prediction here was wrong.** "Every question pays an embedding call, forever" - it does
+not. The cache is still a cache **in memory**; only persistence across restarts is lost.
+Measured in the container: an unseen question costs 5.64 s, the same question again costs
+1.87 s, against 5.49 s and 1.83 s on the host. The real price is one embedding call per
+distinct question per container lifetime, which for a ten-question demo is ten calls per
+deploy.
+
+### The three failure modes, checked against the container
+
+`make docker-checks` starts a container per case and asserts the behaviour Stage 5 defined
+against fakes:
+
+| case | how | expected |
+|---|---|---|
+| no index | an empty tmpfs over `/app/data/index` | `/health` 200 with `chunks_indexed: 0`, `/ask` **503** |
+| no API key | no environment at all | `/health` 200 with `openai_key_configured: false`, `/ask` **500 `misconfigured`** |
+| a wrong API key | `OPENAI_API_KEY=sk-not-a-real-key-000` | `/ask` **500 `misconfigured`**, and the key absent from the body |
+
+**Two defects, neither of which 456 unit tests could see.**
+
+The first: with no key configured, the SDK raises a bare `OpenAIError` from its
+*constructor* - `attempts: 0`, no request attempted, outside its typed hierarchy - which
+classified as `internal_error`. That is what you report when you do not know, and the
+service did know: `/health` has reported whether a key is set since Stage 0. Now
+`get_client` raises `MissingAPIKey` from configuration, before the SDK is asked anything,
+and it classifies as `misconfigured`.
+
+The second was in the check itself. The assertion read `body_has '"code"'` - that a `code`
+field EXISTS - which passed while the code said `internal_error`. An assertion that asks
+less than the question it stands in for is the same defect as a metric measuring the wrong
+thing, and this document has a chapter of those.
+
+A third was a trap rather than a defect: the check set `PT_OPENAI_API_KEY`, but the
+setting carries `validation_alias="OPENAI_API_KEY"` so the `PT_` prefix does not apply.
+The "wrong key" case was silently testing a *missing* key for the second time.
+
+**The lesson for the stage: unit tests cannot see configuration, and configuration is most
+of what a container changes.**
+
+### What the image is
+
+| | |
+|---|---|
+| size | **472 MB** (`python:3.12-slim`) |
+| build context | 11 MB, from 1.6 GB |
+| cold start to a healthy `/health` | **1.67 s** |
+| runs as | uid **10001**, non-root |
+| survives | `--read-only --cap-drop ALL --security-opt no-new-privileges` |
+| secrets in layers | none - `docker history` greps to 0, and the image's environment carries no key |
+| healthcheck | `python -c urllib`, no curl installed to answer a question the interpreter can; `attempts: 0`, so it never calls the provider |
+
+The healthcheck detail matters more than it looks: one that reached OpenAI would bill on
+every probe and report the container unhealthy during someone else's outage.
+
+**pgvector was cut**, and the reason is a number rather than a preference: the index is
+7.2 MB and retrieval runs at 2.4 ms p95, so a network hop per query would be slower than
+the thing it replaced. If it is ever done, the bar is that `make retrieval-eval` produces
+byte-identical metrics - the same bar the shared-client refactor was held to.
+
 ---
 
 ## Known limitations

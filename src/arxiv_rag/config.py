@@ -75,6 +75,11 @@ class Settings(BaseSettings):
 
     # Retrieval
     embedding_batch_size: int = Field(default=128, ge=1, le=2048)
+    # The embedding cache is an optimisation, and in a container it is a write to a
+    # filesystem that may be read-only and will not survive a restart either way. Turned
+    # off in the image (`PT_EMBEDDING_CACHE_WRITES=false`); on everywhere else, where it
+    # saves real money across eval runs.
+    embedding_cache_writes: bool = True
     top_k: int = Field(default=5, ge=1, le=50)
     # How deep each retriever goes before reciprocal rank fusion. Measured across 34
     # questions the choice barely matters (hit@1 identical from 5 to 50), so this is a

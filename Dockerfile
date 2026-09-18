@@ -18,6 +18,17 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# The embedding cache writes `cache.json` on every question whose query has not been
+# embedded before - observed in this container as "saved 1 entries". Three options were on
+# the table: bake the 30 MB cache in (stale the moment anyone asks something new), mount a
+# volume (awkward on platforms with ephemeral filesystems), or stop persisting. Stopping
+# costs one embedding call per unseen question, which a fresh container pays anyway
+# because the writable layer dies with it.
+#
+# Set as an ENV rather than hardcoded: the same image can be run with a mounted cache by
+# passing -e PT_EMBEDDING_CACHE_WRITES=true, without a rebuild.
+ENV PT_EMBEDDING_CACHE_WRITES=false
+
 WORKDIR /app
 
 # Dependencies first, in a layer keyed only on pyproject.toml, then the source. Ordered
@@ -57,5 +68,22 @@ COPY data/index/ ./data/index/
 
 # 0.0.0.0, not 127.0.0.1: a server bound to loopback inside a container is unreachable
 # from outside it, and the symptom is an empty reply rather than an error.
+# An unprivileged user, created before the switch and referenced by NUMBER in USER:
+# orchestrators that enforce "must not run as root" read the numeric uid from the image
+# config and cannot resolve a name against the container's /etc/passwd.
+#
+# Nothing in /app is chowned to it. The service only reads - the index, the code - and
+# root-owned, world-readable files are exactly right for that. A writable working
+# directory would be a permission this process has no use for.
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin app
+USER 10001
+
+# `python`, not curl: the slim image has no curl, and adding one for a healthcheck would
+# be a package installed to answer a question the interpreter already can. The start
+# period covers loading 874 chunks and the 5 MB matrix.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+    CMD python -c "import urllib.request as u, sys; \
+sys.exit(0 if u.urlopen('http://127.0.0.1:8000/health', timeout=2).status == 200 else 1)"
+
 EXPOSE 8000
 CMD ["uvicorn", "arxiv_rag.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

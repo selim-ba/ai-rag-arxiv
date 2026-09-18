@@ -1,4 +1,12 @@
-"""Stage 2 — the pure parts of the embedding client. No network."""
+"""Stage 2 — the pure parts of the embedding client. No network.
+
+Stage 6 added the second half: what the cache does when the filesystem says no. In a
+container the cache is a write to a layer that dies with the container, and on a hardened
+platform to a filesystem that is read-only. Both are now first-class cases rather than
+crashes.
+"""
+
+from pathlib import Path
 
 import pytest
 
@@ -96,3 +104,69 @@ def test_a_second_save_after_more_writes_still_persists(tmp_path):
     reloaded = get_cache(tmp_path)
     assert reloaded.get("a") == [1.0] and reloaded.get("b") == [2.0]
     get_cache.cache_clear()
+
+
+# -- Stage 6: the cache in a container ---------------------------------------------
+
+
+def test_writes_can_be_turned_off(tmp_path):
+    """`PT_EMBEDDING_CACHE_WRITES=false` in the image. One embedding call per unseen
+    question is the price, and a fresh container pays it either way."""
+    cache = EmbeddingCache(tmp_path, writes_enabled=False)
+    cache.put("k", [0.1, 0.2])
+    cache.save()
+    assert not (tmp_path / "cache.json").exists()
+
+
+def test_reading_still_works_when_writing_is_off(tmp_path):
+    """Reading and writing are separate permissions. A cache mounted read-only, or baked
+    into an image, is still worth every hit it serves."""
+    warm = EmbeddingCache(tmp_path)
+    warm.put("k", [0.1, 0.2])
+    warm.save()
+
+    cold = EmbeddingCache(tmp_path, writes_enabled=False)
+    assert cold.get("k") == [0.1, 0.2]
+
+
+def test_a_read_only_filesystem_does_not_fail_the_request(tmp_path, monkeypatch, caplog):
+    """The rule this draws: a write the system depends on fails loudly, a write that only
+    makes it cheaper degrades quietly and says so once. Returning 500 because an
+    optimisation could not persist trades a real failure for an imaginary one."""
+    attempts = []
+
+    def read_only(self, *args, **kwargs):
+        attempts.append(self)
+        raise OSError(30, "Read-only file system")
+
+    cache = EmbeddingCache(tmp_path)
+    cache.put("k", [0.1])
+    monkeypatch.setattr(Path, "write_text", read_only)
+
+    cache.save()  # must not raise
+
+    assert len(attempts) == 1
+    assert "read-only" in caplog.text.lower()
+
+
+def test_a_rejected_write_is_not_retried_on_every_later_miss(tmp_path, monkeypatch):
+    """One OSError per process, not one per request. A read-only filesystem does not
+    become writable while you watch it, and the retry would put a stack trace in the log
+    for every question asked."""
+    attempts = []
+
+    def read_only(self, *args, **kwargs):
+        attempts.append(self)
+        raise OSError(30, "Read-only file system")
+
+    cache = EmbeddingCache(tmp_path)
+    cache.put("k1", [0.1])
+    monkeypatch.setattr(Path, "write_text", read_only)
+    cache.save()
+
+    cache.put("k2", [0.2])
+    cache.save()
+    cache.put("k3", [0.3])
+    cache.save()
+
+    assert len(attempts) == 1
