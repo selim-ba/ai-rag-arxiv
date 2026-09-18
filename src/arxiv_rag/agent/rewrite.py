@@ -20,7 +20,7 @@ import logging
 import re
 
 from arxiv_rag.config import Settings
-from arxiv_rag.llm import get_client as _client
+from arxiv_rag.llm import chat
 from arxiv_rag.retrieval.bm25 import tokenize
 
 log = logging.getLogger(__name__)
@@ -85,7 +85,8 @@ def preserves_key_terms(original: str, rewritten: str) -> bool:
 def rewrite_query(question: str, missing: str, settings: Settings) -> str:
     """Produce a better search query, or fall back to something safe"""
     try:
-        response = _client(settings).chat.completions.create(
+        response = chat(
+            settings,
             model=settings.llm_model,
             messages=[
                 {"role": "system", "content": REWRITE_SYSTEM},

@@ -80,6 +80,15 @@ class Settings(BaseSettings):
     # off in the image (`PT_EMBEDDING_CACHE_WRITES=false`); on everywhere else, where it
     # saves real money across eval runs.
     embedding_cache_writes: bool = True
+
+    # Stage 7. What stops a public demo costing money. Measured: one `/ask` costs
+    # $0.000517, so 50 cents is about 970 questions a day - generous for a portfolio link
+    # and cheap enough to forget about. 0 or less disables the cap, for local runs.
+    daily_budget_usd: float = 0.50
+    # A visitor clicking three example questions is not abuse; a script asking a hundred
+    # times a minute is. Burst covers the former, the rate bounds the latter.
+    rate_limit_per_minute: float = 10.0
+    rate_limit_burst: int = 5
     top_k: int = Field(default=5, ge=1, le=50)
     # How deep each retriever goes before reciprocal rank fusion. Measured across 34
     # questions the choice barely matters (hit@1 identical from 5 to 50), so this is a

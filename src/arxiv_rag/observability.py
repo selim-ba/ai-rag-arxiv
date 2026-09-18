@@ -41,6 +41,8 @@ from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from uuid import uuid4
 
+from arxiv_rag.pricing import cost_usd
+
 log = logging.getLogger("arxiv_rag.request")
 
 # Every request the SDK sends carries its own retry number in this header (0 on the first
@@ -76,6 +78,9 @@ class RequestStats:
     rate_limited: int = 0  # 429s seen, each of which the SDK slept on
     server_errors: int = 0  # 5xx seen
     upstream_ms: float = 0.0  # time inside provider calls
+    tokens_in: int = 0  # prompt tokens, summed over every call this request made
+    tokens_out: int = 0  # completion tokens
+    cost_usd: float = 0.0  # what those tokens cost, at the prices in `pricing.py`
     extra: dict = field(default_factory=dict)
     # Not reported as a field: a perf_counter origin is meaningless on its own. It is here
     # so that anything during the request can ask how long the *caller* has been waiting,
@@ -172,6 +177,21 @@ def record_response(status_code: int, elapsed_ms: float) -> None:
         stats.server_errors += 1
 
 
+def record_usage(model: str, tokens_in: int, tokens_out: int) -> None:
+    """One call's token usage. Safe outside a request, like the other recorders.
+
+    Counted here rather than estimated from chunk sizes. The estimate said a request costs
+    about $0.00054; this is what says whether that was right, and it is the difference
+    between a daily budget denominated in dollars and one denominated in guesses.
+    """
+    stats = _current.get()
+    if stats is None:
+        return
+    stats.tokens_in += tokens_in
+    stats.tokens_out += tokens_out
+    stats.cost_usd += cost_usd(model, tokens_in, tokens_out)
+
+
 def note(**fields) -> None:
     """Attach request-scoped facts - route, mode, conversation - to the summary line."""
     stats = _current.get()
@@ -183,6 +203,10 @@ def emit(stats: RequestStats, **fields) -> None:
     """The one line. Everything about the request, as JSON, on a single row."""
     payload = {k: v for k, v in asdict(stats).items() if k not in ("extra", "started")}
     payload["retries"] = stats.retries
+    # Six decimals: a request costs about $0.0005, and rounding to four would report most
+    # of them as $0.0005 or $0.0000 - a field that cannot distinguish a cheap request from
+    # a free one is not worth the width.
+    payload["cost_usd"] = round(stats.cost_usd, 6)
     payload |= stats.extra
     payload |= fields
     payload["upstream_ms"] = round(stats.upstream_ms, 1)

@@ -21,7 +21,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from arxiv_rag.config import Settings
-from arxiv_rag.llm import get_client as _client
+from arxiv_rag.llm import embed
 
 log = logging.getLogger(__name__)
 
@@ -129,9 +129,8 @@ def batched(items: list[str], size: int) -> Iterator[list[str]]:
 
 def embed_texts(texts: list[str], settings: Settings) -> list[list[float]]:
     """Embed a list of texts, returning one vector per input, in order."""
-    # Step 1 - open the cache and the client
+    # Step 1 - open the cache
     cache = get_cache(settings.embedding_cache_dir, settings.embedding_cache_writes)
-    client = _client(settings)
 
     # Step 2 - find cache misses and their indices
     cache_misses = []
@@ -149,7 +148,7 @@ def embed_texts(texts: list[str], settings: Settings) -> list[list[float]]:
 
     # Step 3 - embed the cache misses in batches
     for batch in batched(cache_misses, settings.embedding_batch_size):
-        response = client.embeddings.create(model=settings.embedding_model, input=batch)
+        response = embed(settings, model=settings.embedding_model, input=batch)
         for text, embedding in zip(
             batch, sorted(response.data, key=lambda d: d.index), strict=True
         ):

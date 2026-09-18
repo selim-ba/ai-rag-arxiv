@@ -25,17 +25,16 @@ def fake_model(monkeypatch):
     """Make `rewrite_query` return whatever this fixture is told to, without a network."""
     box = {"content": '{"query": "placeholder"}', "raise": None}
 
-    class FakeCompletions:
-        def create(self, **kwargs):
-            box["kwargs"] = kwargs
-            if box["raise"] is not None:
-                raise box["raise"]
-            return FakeResponse(box["content"])
+    def fake_chat(settings, **kwargs):
+        box["kwargs"] = kwargs
+        if box["raise"] is not None:
+            raise box["raise"]
+        return FakeResponse(box["content"])
 
-    class FakeClient:
-        chat = type("Chat", (), {"completions": FakeCompletions()})()
-
-    monkeypatch.setattr(rewrite_mod, "_client", lambda settings: FakeClient())
+    # Patches `llm.chat`, the counted seam, rather than the client it wraps: every call
+    # site went through `get_client` before Stage 7 and goes through `chat` now, so a
+    # fixture that fakes the client would be faking a layer nothing calls any more.
+    monkeypatch.setattr(rewrite_mod, "chat", fake_chat)
     return box
 
 

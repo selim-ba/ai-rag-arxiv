@@ -43,11 +43,10 @@ import argparse
 import json
 from pathlib import Path
 
-from openai import OpenAI
-
 from arxiv_rag.config import get_settings
 from arxiv_rag.evaluation.metrics import flatten
 from arxiv_rag.evaluation.quotes import quote_supported
+from arxiv_rag.llm import chat
 from arxiv_rag.retrieval.bm25 import BM25Index
 from arxiv_rag.retrieval.hybrid import DenseRetriever, HybridRetriever
 from arxiv_rag.retrieval.store import ChunkStore
@@ -126,7 +125,6 @@ def propose(args) -> None:
     settings = get_settings()
     store = ChunkStore.load(settings.index_dir)
     by_id = {c.chunk_id: c for c in store.chunks}
-    client = OpenAI(api_key=settings.openai_api_key)
 
     # The three retrievers whose numbers appear in docs/results.md, configured exactly as
     # they are there. Fusion depth has to be at least the pool depth or the fused list is
@@ -181,7 +179,8 @@ def propose(args) -> None:
             f"GOLD PASSAGES:\n{gold_block}\n\n"
             f"CANDIDATE PASSAGES:\n{passage_block('CANDIDATE', candidates)}"
         )
-        response = client.chat.completions.create(
+        response = chat(
+            settings,
             model=settings.judge_model,
             messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}],
             temperature=0,

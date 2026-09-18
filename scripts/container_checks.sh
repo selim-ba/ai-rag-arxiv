@@ -104,6 +104,35 @@ if start -e OPENAI_API_KEY=sk-not-a-real-key-000; then
   body_lacks "  the key is not echoed" 'sk-not-a-real-key'
 fi
 
+ask_status() {  # a bare status code, for loops
+  curl -s -o /tmp/body.$$ -w '%{http_code}' -X POST "http://localhost:$PORT/ask" \
+    -H 'content-type: application/json' \
+    -d '{"question":"How does PlaNet search for a good action sequence?"}'
+}
+
+echo
+echo "4. too many requests from one client"
+echo "   the limiter runs BEFORE the model call, so a refusal costs nothing. Proven here"
+echo "   by running with no API key at all: the first asks fail as ours (500), and the"
+echo "   one past the burst is refused (429) without ever reaching the provider."
+if start -e PT_RATE_LIMIT_BURST=2 -e PT_RATE_LIMIT_PER_MINUTE=1; then
+  first=$(ask_status); second=$(ask_status); third=$(ask_status)
+  expect "the first two are served" "$first$second" "500500"
+  expect "the third is refused" "$third" "429"
+  body_has "  as a client rate limit" '"code":"rate_limited"'
+fi
+
+echo
+echo "5. the daily budget"
+echo "   COSTS ONE REAL REQUEST (about \$0.0005). Budget set below the price of a single"
+echo "   answer, so the second question is refused."
+if start --env-file .env -e PT_DAILY_BUDGET_USD=0.0002; then
+  expect "the first question is answered" "$(ask_status)" "200"
+  expect "the second is refused" "$(ask_status)" "503"
+  body_has "  as an exhausted budget" '"code":"budget_exhausted"'
+  body_has "  with a time to come back" '"retry_after"'
+fi
+
 rm -f /tmp/body.$$
 echo
 [ "$FAILED" -eq 0 ] && echo "all container failure modes behave as specified" \

@@ -34,7 +34,7 @@ from typing import Protocol
 
 from arxiv_rag.config import Settings
 from arxiv_rag.ingestion.models import Chunk
-from arxiv_rag.llm import get_client
+from arxiv_rag.llm import chat
 from arxiv_rag.retrieval.filters import ChunkFilter
 from arxiv_rag.retrieval.hybrid import Retriever
 from arxiv_rag.retrieval.store import SearchHit
@@ -203,8 +203,8 @@ class LLMListwiseReranker:
             f"[{i}] {c.title} | {c.section}\n{c.text[: self.max_chars]}"
             for i, c in enumerate(chunks, start=1)
         )
-        client = get_client(self.settings)
-        response = client.chat.completions.create(
+        response = chat(
+            self.settings,
             model=self.settings.llm_model,
             messages=[
                 {"role": "system", "content": LISTWISE_SYSTEM},

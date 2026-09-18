@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 from arxiv_rag.config import Settings
 from arxiv_rag.evaluation.quotes import quote_supported
-from arxiv_rag.llm import get_client as _client
+from arxiv_rag.llm import chat
 from arxiv_rag.retrieval.answer import format_context
 from arxiv_rag.retrieval.store import SearchHit
 
@@ -134,7 +134,8 @@ class Grader:
 
         context = format_context(hits)
         try:
-            response = _client(self.settings).chat.completions.create(
+            response = chat(
+                self.settings,
                 model=self.settings.grader_model,
                 messages=[
                     {"role": "system", "content": GRADER_SYSTEM},

@@ -29,7 +29,7 @@ from time import perf_counter
 from pydantic import BaseModel, Field
 
 from arxiv_rag.config import Settings
-from arxiv_rag.llm import get_client as _client
+from arxiv_rag.llm import chat
 from arxiv_rag.retrieval.filters import ChunkFilter
 from arxiv_rag.retrieval.hybrid import Retriever
 from arxiv_rag.retrieval.store import SearchHit
@@ -268,7 +268,8 @@ def generate_answer(question: str, hits: list[SearchHit], settings: Settings) ->
         )
 
     context = format_context(hits)
-    response = _client(settings).chat.completions.create(
+    response = chat(
+        settings,
         model=settings.llm_model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -324,7 +325,8 @@ def stream_generate(question: str, hits: list[SearchHit], settings: Settings) ->
         return
 
     context = format_context(hits)
-    stream = _client(settings).chat.completions.create(
+    stream = chat(
+        settings,
         model=settings.llm_model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},

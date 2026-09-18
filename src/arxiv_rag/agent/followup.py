@@ -31,7 +31,7 @@ from pydantic import BaseModel
 
 from arxiv_rag.agent.rewrite import preserves_key_terms
 from arxiv_rag.config import Settings
-from arxiv_rag.llm import get_client as _client
+from arxiv_rag.llm import chat
 
 log = logging.getLogger(__name__)
 
@@ -137,7 +137,8 @@ def resolve_followup(history: list[Turn], followup: str, settings: Settings) -> 
         for turn in history[-3:]
     )
     try:
-        response = _client(settings).chat.completions.create(
+        response = chat(
+            settings,
             model=settings.followup_model,
             messages=[
                 {"role": "system", "content": RESOLVE_SYSTEM},

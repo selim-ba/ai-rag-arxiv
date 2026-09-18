@@ -61,6 +61,20 @@ from arxiv_rag.observability import current_request_id, note
 log = logging.getLogger(__name__)
 
 
+class Refused(Exception):
+    """A request this service declines for its own reasons rather than the provider's.
+
+    Carries the same `UpstreamFailure` shape so a caller sees one response format for
+    every failure: a `code` to branch on, a sentence for a human, a request id to quote.
+    A demo that ran out of budget and a provider that rate-limited us are different
+    events, and a client should be able to tell them apart without reading prose.
+    """
+
+    def __init__(self, failure: "UpstreamFailure") -> None:
+        super().__init__(failure.code)
+        self.failure = failure
+
+
 @dataclass(frozen=True)
 class UpstreamFailure:
     """One row of the table above: what the caller is told, and how long to wait."""
@@ -143,6 +157,18 @@ def install_error_handlers(app: FastAPI) -> None:
     It runs *inside* the request-logging middleware, so these responses still carry an
     `X-Request-ID` and still produce exactly one summary line, now with the failure on it.
     """
+
+    @app.exception_handler(Refused)
+    def handle_refused(request: Request, exc: Refused) -> JSONResponse:
+        note(refused_by=exc.failure.code)
+        headers = {}
+        if exc.failure.retry_after is not None:
+            headers["Retry-After"] = str(exc.failure.retry_after)
+        return JSONResponse(
+            status_code=exc.failure.status,
+            content=failure_payload(exc.failure),
+            headers=headers,
+        )
 
     @app.exception_handler(MissingAPIKey)
     @app.exception_handler(OpenAIError)

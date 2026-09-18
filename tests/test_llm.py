@@ -16,7 +16,8 @@ import re
 import pytest
 
 from arxiv_rag.config import Settings
-from arxiv_rag.llm import MissingAPIKey, get_client
+from arxiv_rag.llm import MissingAPIKey, chat, get_client
+from arxiv_rag.observability import start_request
 
 
 def test_the_same_settings_give_the_same_client():
@@ -58,17 +59,40 @@ def test_retries_can_be_switched_off():
     assert client.max_retries == 0
 
 
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+
+def sources() -> list[pathlib.Path]:
+    """Every module in the project, `llm.py` excepted - it is the seam, not a user of it.
+
+    `scripts/` is included deliberately. It was not, and `scripts/gold_audit.py` was
+    quietly building its own client: no timeout, no pinned retry count, and no token
+    accounting. A structural test that only looks where you remember to look finds what
+    you already knew."""
+    files = list((ROOT / "src" / "arxiv_rag").rglob("*.py")) + list((ROOT / "scripts").glob("*.py"))
+    return [f for f in files if f.name != "llm.py"]
+
+
 def test_nothing_outside_llm_py_constructs_a_client():
-    """Structural, and the point of the refactor: one place to configure, one place to
-    forget a timeout. A new module reaching for `OpenAI(...)` directly would silently get
-    the ten-minute default back."""
-    src = pathlib.Path(__file__).resolve().parents[1] / "src" / "arxiv_rag"
+    """One place to configure, one place to forget a timeout. A module reaching for
+    `OpenAI(...)` directly would silently get the ten-minute default back."""
     offenders = [
-        path.relative_to(src).as_posix()
-        for path in src.rglob("*.py")
-        if path.name != "llm.py" and re.search(r"\bOpenAI\s*\(", path.read_text())
+        f.relative_to(ROOT).as_posix()
+        for f in sources()
+        if re.search(r"\bOpenAI\s*\(", f.read_text())
     ]
     assert offenders == [], f"construct clients via llm.get_client: {offenders}"
+
+
+def test_nothing_outside_llm_py_calls_the_provider_directly():
+    """The same argument, for the token accounting. A call that bypasses `llm.chat` costs
+    money nobody counted, which is the one thing a daily budget cannot survive."""
+    offenders = [
+        f.relative_to(ROOT).as_posix()
+        for f in sources()
+        if re.search(r"\.(chat\.completions|embeddings)\.create\s*\(", f.read_text())
+    ]
+    assert offenders == [], f"call the provider via llm.chat / llm.embed: {offenders}"
 
 
 def test_no_key_is_our_error_raised_before_the_sdk_is_touched():
@@ -80,3 +104,72 @@ def test_no_key_is_our_error_raised_before_the_sdk_is_touched():
     is set; this is the same question, on the path that needs the answer."""
     with pytest.raises(MissingAPIKey):
         get_client(Settings(openai_api_key=""))
+
+
+class FakeCompletions:
+    """Records what `chat()` sent, and hands back something with a usage object."""
+
+    def __init__(self, streamed=False):
+        self.kwargs = None
+        self.streamed = streamed
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        if self.streamed:
+            return iter([Chunk(None), Chunk(Usage(1000, 50))])
+        return Response(Usage(1000, 50))
+
+
+class Usage:
+    def __init__(self, prompt_tokens, completion_tokens):
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+
+
+class Response:
+    def __init__(self, usage):
+        self.usage = usage
+
+
+class Chunk:
+    def __init__(self, usage):
+        self.usage = usage
+
+
+class FakeClient:
+    def __init__(self, streamed=False):
+        self.completions = FakeCompletions(streamed)
+        self.chat = type("Chat", (), {"completions": self.completions})()
+        self.embeddings = self.completions
+
+
+def test_chat_counts_the_tokens_it_used(monkeypatch):
+    fake = FakeClient()
+    monkeypatch.setattr("arxiv_rag.llm.get_client", lambda settings: fake)
+    stats = start_request("t1")
+    chat(Settings(openai_api_key="k"), model="gpt-4o-mini", messages=[])
+    assert (stats.tokens_in, stats.tokens_out) == (1000, 50)
+    assert stats.cost_usd == pytest.approx(1000 * 0.15 / 1e6 + 50 * 0.60 / 1e6)
+
+
+def test_a_streamed_call_asks_for_its_usage(monkeypatch):
+    """A streamed completion reports nothing unless `stream_options` asks, and the
+    streaming path is the one a user actually hits - so without this the budget would
+    undercount exactly the traffic it exists to cap."""
+    fake = FakeClient(streamed=True)
+    monkeypatch.setattr("arxiv_rag.llm.get_client", lambda settings: fake)
+    stats = start_request("t2")
+
+    chunks = list(chat(Settings(openai_api_key="k"), model="gpt-4o-mini", messages=[], stream=True))
+
+    assert fake.completions.kwargs["stream_options"] == {"include_usage": True}
+    assert len(chunks) == 2  # the usage chunk is passed through, not swallowed
+    assert (stats.tokens_in, stats.tokens_out) == (1000, 50)
+
+
+def test_usage_is_counted_once_per_call_not_once_per_chunk(monkeypatch):
+    fake = FakeClient(streamed=True)
+    monkeypatch.setattr("arxiv_rag.llm.get_client", lambda settings: fake)
+    stats = start_request("t3")
+    list(chat(Settings(openai_api_key="k"), model="gpt-4o-mini", messages=[], stream=True))
+    assert stats.tokens_in == 1000

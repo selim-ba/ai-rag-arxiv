@@ -36,7 +36,7 @@ from pydantic import BaseModel, Field
 
 from arxiv_rag.agent.tools import IndexedPaper
 from arxiv_rag.config import Settings
-from arxiv_rag.llm import get_client as _client
+from arxiv_rag.llm import chat
 
 log = logging.getLogger(__name__)
 
@@ -167,7 +167,8 @@ def route_question(
     """
     indexed = frozenset(p.arxiv_id for p in papers)
     try:
-        response = _client(settings).chat.completions.create(
+        response = chat(
+            settings,
             model=settings.router_model,
             messages=[
                 {"role": "system", "content": build_router_prompt(papers)},

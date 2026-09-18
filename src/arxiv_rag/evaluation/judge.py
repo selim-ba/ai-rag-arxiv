@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field
 
 from arxiv_rag.config import Settings
 from arxiv_rag.evaluation.quotes import normalise, quote_supported
-from arxiv_rag.llm import get_client as _client
+from arxiv_rag.llm import chat
 
 log = logging.getLogger(__name__)
 
@@ -424,7 +424,8 @@ def judge_answer(
 
 def _grade(messages: list[dict], settings: Settings) -> Verdict | None:
     """One judge call. ``None`` when the reply could not be parsed."""
-    response = _client(settings).chat.completions.create(
+    response = chat(
+        settings,
         model=settings.judge_model,
         messages=messages,
         temperature=0,

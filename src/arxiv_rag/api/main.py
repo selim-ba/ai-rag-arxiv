@@ -32,9 +32,16 @@ from arxiv_rag import __version__
 from arxiv_rag.agent.followup import Turn, resolve_followup
 from arxiv_rag.agent.graph import build_graph, run_agent
 from arxiv_rag.agent.session import SessionStore, new_conversation_id
-from arxiv_rag.api.errors import classify, failure_payload, install_error_handlers
+from arxiv_rag.api.errors import (
+    Refused,
+    UpstreamFailure,
+    classify,
+    failure_payload,
+    install_error_handlers,
+)
 from arxiv_rag.config import Settings, get_settings
 from arxiv_rag.ingestion.models import Chunk
+from arxiv_rag.limits import buckets, budget, client_key
 from arxiv_rag.observability import (
     RequestLogMiddleware,
     configure_logging,
@@ -139,6 +146,43 @@ def get_retriever(request: Request) -> Retriever:
     return retriever
 
 
+def enforce_limits(request: Request) -> None:
+    """Refuse before spending, on two different grounds with two different meanings.
+
+    **429 for the per-IP bucket, and that is not a contradiction.** `api/errors.py` argues
+    that a PROVIDER rate limit must not reach the caller as 429, because the quota is this
+    service's and the caller had no part in it. Here the caller genuinely is sending too
+    fast and slowing down genuinely fixes it, which is what 429 means.
+
+    **503 for the daily budget**, because nothing the caller does changes it before
+    midnight - and `Retry-After` is exact rather than guessed, since this service knows
+    when its own day rolls over.
+
+    Checked before the endpoint runs, so a refusal costs nothing: no retrieval, no model
+    call, no tokens. The budget can therefore only be exceeded by the single request that
+    crossed it, which is about half a tenth of a cent.
+    """
+    if not buckets().allow(client_key(request)):
+        raise Refused(
+            UpstreamFailure(
+                429,
+                "rate_limited",
+                "too many requests from this client; slow down",
+                retry_after=buckets().retry_after_seconds,
+            )
+        )
+    if budget().exhausted:
+        log.warning("daily budget exhausted: %.4f USD spent", budget().spent_usd)
+        raise Refused(
+            UpstreamFailure(
+                503,
+                "budget_exhausted",
+                "the demo's budget for today is spent; the recorded examples still work",
+                retry_after=budget().seconds_until_reset(),
+            )
+        )
+
+
 def get_graph(request: Request):
     """Dependency: the compiled agent graph, or 503. Same shape as ``get_retriever``."""
     graph = request.app.state.graph
@@ -209,12 +253,18 @@ def health(settings: Settings = Depends(get_settings)) -> dict:
     Reports whether a key is configured without ever returning the key itself. Docker
     and your cloud platform will poll this in Stage 6.
     """
+    # The budget is here so a client can ask BEFORE offering someone a question box.
+    # A demo that lets you type, waits six seconds and then says "no budget" is worse than
+    # one that tells you up front and shows the recorded answers instead.
     return {
         "status": "ok",
         "version": __version__,
         "llm_model": settings.llm_model,
         "openai_key_configured": bool(settings.openai_api_key),
         "chunks_indexed": len(app.state.store) if app.state.store else 0,
+        "budget_usd": round(budget().limit_usd, 4),
+        "budget_spent_usd": round(budget().spent_usd, 6),
+        "budget_exhausted": budget().exhausted,
     }
 
 
@@ -244,6 +294,7 @@ def ask(
     settings: Settings = Depends(get_settings),
     retriever: Retriever = Depends(get_retriever),
     graph=Depends(get_graph),
+    _limits: None = Depends(enforce_limits),
 ) -> AskResponse:
     """Answer one question against the indexed corpus.
 
@@ -322,6 +373,7 @@ def ask_stream(
     payload: AskRequest,
     settings: Settings = Depends(get_settings),
     retriever: Retriever = Depends(get_retriever),
+    _limits: None = Depends(enforce_limits),
 ) -> StreamingResponse:
     """Answer one question, streaming the text as it is produced.
 
