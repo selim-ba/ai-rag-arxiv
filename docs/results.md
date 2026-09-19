@@ -1336,6 +1336,52 @@ third of it was the calendar. The control run cost five cents.
 
 ---
 
+## Stage 7 - CI, and a claim that was only true on one machine
+
+The pipeline is lint -> tests -> **the retrieval evaluation against a committed floor** ->
+build the image -> run the container's five failure-mode checks -> push to the registry
+tagged with the commit sha.
+
+**Gating a build on an evaluation set is the unusual part**, and it is only possible
+because this particular harness is deterministic and needs no key. `eval/thresholds.json`
+holds the floor - in the repository rather than in the workflow, because a threshold in a
+YAML comment is a number nobody reviews, while one in a file arrives in a diff. The
+comparison is made at the precision the floor is written to: hit@1 is 12/34 = 0.35294, and
+an exact comparison against a human-readable 0.353 failed the first time it ran, by
+0.00006, reporting it as `(-0.000)`. With 34 questions the smallest real change is 1/34 =
+0.029, a hundred times the rounding, so rounding cannot hide a regression.
+
+**No paid harness is in CI**, and the README says so. `make eval`, `route-eval` and
+`followup-eval` cost money per run and move about five points between runs of the same
+code; a green badge implying they were checked on every push would be exactly the claim
+this project has spent seven stages learning not to make.
+
+### What the first CI run found
+
+Not a regression - a false statement, made by me, in this document's sibling comment: that
+`make retrieval-eval` makes **no model calls**. It does. The chunk embeddings are
+precomputed in the committed index, but each of the 34 questions still has to be embedded
+to search. On a laptop whose cache has held those questions for weeks that is free and
+invisible; on a clean runner it reached for the API on the first question and failed with
+`MissingAPIKey`.
+
+**This is the warm-cache mistake again, one level up.** Stage 6 found it in latency
+numbers - every figure in this document is warm-cache latency. Stage 7 found it in a claim
+about what a harness *costs*, which is worse, because that claim was the reason the harness
+was allowed to gate a build.
+
+The fix is `eval/query_cache.json`: the 40 questions' embedding vectors, 1.2 MB, committed.
+Cost was never the issue - embedding a question is $0.0000004. The issue is that **a
+harness which gates a build must not depend on a key, a network, or anything that can
+answer differently on a different day**. With the index and these vectors both committed,
+the whole retrieval evaluation is reproducible by anyone who clones the repository.
+
+`ruff` was pinned to an exact version in the same commit. It was not what failed, but a
+formatter that changes its mind between releases turns "lint passes on my machine" into a
+claim about which day you installed it.
+
+---
+
 ## Known limitations
 
 1. **Gold labels are incomplete.** Two of five spot-checked questions were answered
