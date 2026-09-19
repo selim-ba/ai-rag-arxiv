@@ -75,7 +75,7 @@ every published number describes; the **agent path** adds a router and a grader.
 ![Architecture: an offline ingestion lane producing a committed index, and a per-request lane splitting into the pipeline and the agent path](docs/architecture.svg)
 
 <details>
-<summary>The same thing as text</summary>
+<summary>Diagram, as text</summary>
 
 ```
                                    pipeline (default)
