@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 600" width="980" height="600" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <style>
+    :root { color-scheme: light dark; }
+    .ink   { fill: #2f3a28; }
+    .muted { fill: #6b7566; }
+    .box   { fill: #f6f7f2; stroke: #c8d2ba; }
+    .accent{ fill: #e9efe0; stroke: #7d9a5c; }
+    .warn  { fill: #f8f1e6; stroke: #bb9160; }
+    .line  { stroke: #9aa892; }
+    .lane  { fill: none; stroke: #d8ded0; stroke-dasharray: 4 4; }
+    @media (prefers-color-scheme: dark) {
+      .ink   { fill: #e4ead9; }
+      .muted { fill: #9aa892; }
+      .box   { fill: #1e2319; stroke: #3c4733; }
+      .accent{ fill: #232b1c; stroke: #7d9a5c; }
+      .warn  { fill: #2a2118; stroke: #bb9160; }
+      .line  { stroke: #5b6852; }
+      .lane  { stroke: #343d2d; }
+    }
+    text { font-size: 13px; }
+    .t   { font-size: 13.5px; font-weight: 600; }
+    .s   { font-size: 11.5px; }
+    .lbl { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+  </style>
+
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9aa892"/>
+    </marker>
+  </defs>
+
+  <!-- lane 1: offline -->
+  <rect class="lane" x="16" y="16" width="948" height="130" rx="10"/>
+  <text class="lbl muted" x="34" y="40">Offline · once · 49 papers</text>
+
+  <g>
+    <rect class="box" x="34" y="56" width="150" height="62" rx="8"/>
+    <text class="t ink" x="50" y="82">arXiv API</text>
+    <text class="s muted" x="50" y="100">49 papers, by id</text>
+  </g>
+  <line class="line" x1="192" y1="87" x2="222" y2="87" marker-end="url(#a)"/>
+
+  <g>
+    <rect class="box" x="230" y="56" width="168" height="62" rx="8"/>
+    <text class="t ink" x="246" y="82">PDF → text</text>
+    <text class="s muted" x="246" y="100">parser chosen by benchmark</text>
+  </g>
+  <line class="line" x1="406" y1="87" x2="436" y2="87" marker-end="url(#a)"/>
+
+  <g>
+    <rect class="box" x="444" y="56" width="168" height="62" rx="8"/>
+    <text class="t ink" x="460" y="82">Chunk</text>
+    <text class="s muted" x="460" y="100">874 chunks, with sections</text>
+  </g>
+  <line class="line" x1="620" y1="87" x2="650" y2="87" marker-end="url(#a)"/>
+
+  <g>
+    <rect class="accent" x="658" y="56" width="288" height="62" rx="8"/>
+    <text class="t ink" x="674" y="82">Index</text>
+    <text class="s muted" x="674" y="100">874 × 1,536 embeddings + a BM25 index</text>
+  </g>
+
+  <!-- lane 2: per request -->
+  <rect class="lane" x="16" y="166" width="948" height="418" rx="10"/>
+  <text class="lbl muted" x="34" y="190">Per request</text>
+
+  <g>
+    <rect class="box" x="34" y="212" width="150" height="58" rx="8"/>
+    <text class="t ink" x="50" y="237">Question</text>
+    <text class="s muted" x="50" y="255">POST /ask</text>
+  </g>
+  <line class="line" x1="192" y1="241" x2="222" y2="241" marker-end="url(#a)"/>
+
+  <g>
+    <rect class="warn" x="230" y="212" width="168" height="58" rx="8"/>
+    <text class="t ink" x="246" y="237">Budget + rate limit</text>
+    <text class="s muted" x="246" y="255">refuses before spending</text>
+  </g>
+  <line class="line" x1="406" y1="241" x2="436" y2="241" marker-end="url(#a)"/>
+
+  <g>
+    <rect class="box" x="444" y="212" width="190" height="58" rx="8"/>
+    <text class="t ink" x="460" y="237">Resolve follow-up</text>
+    <text class="s muted" x="460" y="255">“does it…” → standalone</text>
+  </g>
+
+  <!-- the split -->
+  <text class="lbl muted" x="176" y="294">Pipeline — the default</text>
+  <text class="lbl muted" x="560" y="294">Agent path — where routing is the point</text>
+  <path class="line" d="M539 278 L539 312 L301 312 L301 322" fill="none" marker-end="url(#a)"/>
+  <path class="line" d="M539 278 L539 312 L720 312 L720 322" fill="none" marker-end="url(#a)"/>
+
+  <!-- pipeline column -->
+  <g>
+    <rect class="accent" x="176" y="322" width="250" height="70" rx="8"/>
+    <text class="t ink" x="192" y="347">Retrieve</text>
+    <text class="s muted" x="192" y="365">dense + BM25, fused</text>
+    <text class="s muted" x="192" y="381">BM25 weighted 0.3 · 2.4 ms p95</text>
+  </g>
+  <line class="line" x1="301" y1="400" x2="301" y2="428" marker-end="url(#a)"/>
+  <g>
+    <rect class="box" x="176" y="436" width="250" height="70" rx="8"/>
+    <text class="t ink" x="192" y="461">Generate, or refuse</text>
+    <text class="s muted" x="192" y="479">sees the 5 best chunks only</text>
+    <text class="s muted" x="192" y="495">1.25 s p50</text>
+  </g>
+
+  <!-- agent column -->
+  <g>
+    <rect class="box" x="560" y="322" width="320" height="52" rx="8"/>
+    <text class="t ink" x="576" y="345">Route</text>
+    <text class="s muted" x="576" y="362">about the corpus · named papers · the catalogue</text>
+  </g>
+  <path class="line" d="M640 382 L640 400 L640 414" fill="none" marker-end="url(#a)"/>
+  <path class="line" d="M800 382 L800 400 L800 414" fill="none" marker-end="url(#a)"/>
+  <g>
+    <rect class="box" x="560" y="422" width="160" height="60" rx="8"/>
+    <text class="t ink" x="574" y="445">Retrieve, scoped</text>
+    <text class="s muted" x="574" y="463">+ grade the chunks</text>
+  </g>
+  <g>
+    <rect class="accent" x="736" y="422" width="144" height="60" rx="8"/>
+    <text class="t ink" x="750" y="445">Catalogue</text>
+    <text class="s muted" x="750" y="463">no model call</text>
+  </g>
+  <path class="line" d="M640 482 L640 524" fill="none" marker-end="url(#a)"/>
+  <path class="line" d="M808 482 L808 524" fill="none" marker-end="url(#a)"/>
+
+  <!-- answer -->
+  <g>
+    <rect class="accent" x="176" y="524" width="704" height="52" rx="8"/>
+    <text class="t ink" x="192" y="547">Answer, with citations substituted in code — or a refusal</text>
+    <text class="s muted" x="192" y="565">the model points at a chunk; the arXiv id is filled in from the retrieved set, so it cannot be invented</text>
+  </g>
+  <path class="line" d="M301 506 L301 524" fill="none" marker-end="url(#a)"/>
+
+  <!-- observability rail -->
+  <g>
+    <rect class="box" x="900" y="212" width="46" height="294" rx="8"/>
+    <text class="s muted" x="923" y="360" transform="rotate(-90 923 360)" text-anchor="middle">one JSON line per request</text>
+    <text class="s muted" x="937" y="360" transform="rotate(-90 937 360)" text-anchor="middle">id · tokens · cost · retries</text>
+  </g>
+</svg>

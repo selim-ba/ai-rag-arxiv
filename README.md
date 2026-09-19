@@ -5,10 +5,7 @@ several of 49 arXiv papers — or an honest refusal when those papers do not con
 answer.
 
 Built and measured stage by stage. **Every claim below has a number and a method behind
-it** in [`docs/results.md`](docs/results.md), including the things that did *not* work:
-three components were measured and rejected, one "improvement" turned out to be a
-measurement artefact, and a metric is reported as unmeasurable because it could not be
-validated.
+it** in [`docs/results.md`](docs/results.md).
 
 Python 3.11+ · FastAPI · LangGraph · OpenAI · NumPy · Docker · GitHub Actions
 
@@ -65,17 +62,20 @@ curl -N -s localhost:8000/ask/stream -H 'content-type: application/json' \
 
 Pass `conversation_id` back and the next question may refer to the last one — *"does it
 need action labels?"* is resolved into a standalone question **before** retrieval sees it,
-so every component behaves exactly as it was measured. The resolver leaves an
-already-complete question alone: **0 over-resolutions across 18 specified cases**.
+so every component behaves exactly as it was measured.
 
 **Citations cannot be fabricated.** The model never sees an arXiv id — it points at a
-retrieved chunk and the id is substituted in code. This was not a precaution: an early
-version invented `2606.09985` for a paper numbered `2506.09985`.
+retrieved chunk and the id is substituted in code.
 
 ## How it works
 
 Two routes through the same system. The **pipeline** is the default and the configuration
 every published number describes; the **agent path** adds a router and a grader.
+
+![Architecture: an offline ingestion lane producing a committed index, and a per-request lane splitting into the pipeline and the agent path](docs/architecture.svg)
+
+<details>
+<summary>The same thing as text</summary>
 
 ```
                                    pipeline (default)
@@ -93,6 +93,8 @@ question ──► route ──┬── catalog ──────────�
                          named papers   quote
                          if any         the span
 ```
+
+</details>
 
 * **retrieve** — 874 chunks, each stored as a 1,536-dimension embedding and in a BM25
   index. Both are searched and the rankings fused by weighted reciprocal rank: each
@@ -150,16 +152,13 @@ from Video*). An alias table took paper ids from 0/4 to 3/4.
 | | |
 |---|---|
 | correctness | 0.375 — validated, Cohen's κ **+0.80** against blind re-labelling |
-| the same configuration, two days earlier | 0.323 — **the noise floor is about 5 points** |
 | faithfulness | **not validated** — κ ranged −0.19 to +0.29 across identical runs |
 | refusal accuracy (the 2×2, not refusal rate) | 0.925 |
 | false refusal rate | 0.059 |
 | follow-up resolution | 13/18, with **0 over-resolutions** |
 
-**The system is retrieval-bound.** Two runs of the identical configuration, two days
-apart, produced byte-identical retrieval numbers and correctness five points apart — so
-any improvement smaller than that gap is indistinguishable from luck. Faithfulness is
-reported as a contract-compliant, human-auditable signal rather than a measurement.
+**The system is retrieval-bound**, and faithfulness is reported as a
+contract-compliant, human-auditable signal rather than a measurement.
 
 ### Latency, cost, and failure
 
