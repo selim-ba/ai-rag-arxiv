@@ -82,9 +82,16 @@ class Settings(BaseSettings):
     embedding_cache_writes: bool = True
 
     # Stage 7. What stops a public demo costing money. Measured: one `/ask` costs
-    # $0.000517, so 50 cents is about 970 questions a day - generous for a portfolio link
-    # and cheap enough to forget about. 0 or less disables the cap, for local runs.
-    daily_budget_usd: float = 0.50
+    # $0.000517, so 30 cents is about 580 questions a day - generous for a portfolio link.
+    # 0 or less disables the cap, for local runs.
+    #
+    # 30 rather than 50 because the two caps have to agree. The provider-side hard cap is
+    # $10 a month; 50 cents a day spent every day is $15, so the app's own limit would stop
+    # binding around the twentieth of the month and the provider's would take over. That is
+    # the wrong failure: this one refuses with a defined 503 and a time to come back, the
+    # provider's arrives as 429s in the middle of answers. $0.30 x 31 = $9.30, so the cap
+    # that binds first is the one that explains itself.
+    daily_budget_usd: float = 0.30
     # A visitor clicking three example questions is not abuse; a script asking a hundred
     # times a minute is. Burst covers the former, the rate bounds the latter.
     rate_limit_per_minute: float = 10.0

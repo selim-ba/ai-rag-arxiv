@@ -29,6 +29,18 @@ ENV PYTHONUNBUFFERED=1 \
 # passing -e PT_EMBEDDING_CACHE_WRITES=true, without a rebuild.
 ENV PT_EMBEDDING_CACHE_WRITES=false
 
+# A request has to finish before the platform gives up on it, or the caller gets the
+# proxy's error instead of ours and everything Stage 5 built for that moment is bypassed.
+# The arithmetic, in the image because it is a deployment decision rather than a library
+# default: 20s per call x 2 attempts = 40s, and the pipeline makes two calls (embed the
+# question, write the answer), so about 81s worst case including backoff. Measured p95 for
+# generation is 3.5s, so 20s is five times the headroom that needs.
+#
+# **Set the platform's request timeout to 120s** - comfortably above 81s, and low enough
+# that nobody waits two minutes for a page that usually answers in two seconds.
+ENV PT_OPENAI_TIMEOUT_SECONDS=20 \
+    PT_OPENAI_MAX_RETRIES=1
+
 WORKDIR /app
 
 # Dependencies first, in a layer keyed only on pyproject.toml, then the source. Ordered

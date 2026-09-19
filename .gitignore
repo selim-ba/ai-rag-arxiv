@@ -6,7 +6,15 @@
 *.key
 
 # data & artifacts
-data/
+#
+# `data/index/` is the exception, and committed on purpose. It is 7.2 MB - the 874 chunks
+# and their embedding matrix - and it is what the Dockerfile copies into the image. With it
+# ignored, a fresh clone cannot build the image at all, CI cannot run the retrieval eval,
+# and rebuilding it would need an API key and a download of 49 PDFs from arXiv. Committing
+# it makes the repository reproducible for anyone, and makes the image version the data
+# version. The PDFs it was built from stay out: 272 MB, and derivable.
+data/*
+!data/index/
 *.db
 .chroma/
 chroma/
