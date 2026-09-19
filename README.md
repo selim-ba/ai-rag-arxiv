@@ -1,8 +1,11 @@
 # Agentic RAG for World Models & JEPA Research
 
-Ask a research question about world models and get a cited answer drawn from one or
-several of 49 arXiv papers — or an honest refusal when those papers do not contain the
-answer.
+**[Live demo](https://arxiv-rag-417724328807.europe-west9.run.app)** · Ask a research question about world models and get a cited answer
+drawn from one or several of 49 arXiv papers — or an honest refusal when those papers do
+not contain the answer.
+
+The demo answers from recorded runs by default, so it is instant and free; a live box
+underneath runs the real system against a daily budget.
 
 Built and measured stage by stage. **Every claim below has a number and a method behind
 it** in [`docs/results.md`](docs/results.md).
@@ -159,6 +162,22 @@ from Video*). An alias table took paper ids from 0/4 to 3/4.
 
 **The system is retrieval-bound**, and faithfulness is reported as a
 contract-compliant, human-auditable signal rather than a measurement.
+
+### Deployment
+
+Cloud Run, `europe-west9`, scale-to-zero, one instance, a 120 s request timeout above the
+app's own ~81 s bound, and the API key injected from Secret Manager rather than baked into
+the image or the service config. The image is pulled from the registry **by commit sha**,
+so the revision serving traffic names the commit that produced it.
+
+| | local container | Cloud Run |
+|---|---|---|
+| `/health` | ~5 ms | 232 ms (including the round trip) |
+| a question not seen before | 5.64 s | 4.60 s |
+| the same question again | 1.87 s | 1.87 s |
+
+One instance on purpose: the daily budget and the rate limit live in the process, so two
+instances would mean two budgets and twice the cap.
 
 ### Latency, cost, and failure
 

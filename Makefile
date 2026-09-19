@@ -4,7 +4,7 @@ PYTHON ?= python3
 # `make` swallows anything starting with `--`, so flags have to arrive as a variable.
 ARGS ?=
 
-.PHONY: export-query-cache record-demo docker-build docker-build-amd64 docker-checks docker-run docker-run-readonly install dev test lint fmt ingest index check-eval eval retrieval-eval grade-eval route-eval followup-eval label-judge score-judge gold-audit gold-apply clean
+.PHONY: deploy export-query-cache record-demo docker-build docker-build-amd64 docker-checks docker-run docker-run-readonly install dev test lint fmt ingest index check-eval eval retrieval-eval grade-eval route-eval followup-eval label-judge score-judge gold-audit gold-apply clean
 
 install:
 	@$(PYTHON) -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" \
@@ -97,6 +97,17 @@ export-query-cache:
 
 record-demo:
 	.venv/bin/python -m scripts.record_demo $(ARGS)
+
+# Deploy the image CI built for THIS commit. Never `latest`: a revision has to be able to
+# name the commit serving traffic, and Cloud Run's pull-through cache holds a failed pull
+# of a tag for up to an hour - which is what made the first `latest` deploy fail after the
+# package was already public.
+deploy:
+	gcloud run deploy arxiv-rag \
+		--image=ghcr.io/selim-ba/ai-rag-arxiv:$$(git rev-parse HEAD) \
+		--allow-unauthenticated --port=8000 --memory=1Gi --cpu=1 \
+		--timeout=120 --max-instances=1 --min-instances=0 --concurrency=20 \
+		--set-secrets=OPENAI_API_KEY=openai-api-key:latest
 
 docker-checks:
 	./scripts/container_checks.sh
