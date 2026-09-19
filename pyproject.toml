@@ -38,7 +38,9 @@ rerank = [
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
-    "ruff>=0.5",
+    # Pinned, not floating. A formatter that changes its mind between versions turns
+    # "lint passes on my machine" into a claim about which day you installed it.
+    "ruff==0.16.5",
 ]
 
 [build-system]

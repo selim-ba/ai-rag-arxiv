@@ -24,6 +24,7 @@ from arxiv_rag.retrieval.filters import ChunkFilter
 from arxiv_rag.retrieval.hierarchical import top_papers
 from arxiv_rag.retrieval.hybrid import DenseRetriever, HybridRetriever
 from arxiv_rag.retrieval.store import ChunkStore
+from scripts.export_query_cache import preload_query_cache
 
 ROOT = Path(__file__).resolve().parents[1]
 DEEP_K = 100  # retrieve this deep for MRR, so "found it at rank 40" is visible
@@ -207,6 +208,11 @@ def main() -> None:
     args = parser.parse_args()
 
     settings = get_settings()
+    # Before anything embeds: the eval questions' vectors are committed, so this harness
+    # needs no API key and can gate a build. Without them it still runs, at one API call
+    # per question - which is how CI discovered the "no model calls" claim was warm-cache
+    # reasoning rather than a fact.
+    preload_query_cache(settings)
     store = ChunkStore.load(settings.index_dir)
     bm25 = BM25Index(store.chunks)
     questions = load_questions(args.split)

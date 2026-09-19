@@ -1,10 +1,14 @@
 # lint -> tests -> the retrieval evaluation -> build -> the container's failure modes.
 #
-# **The unusual step is the third one.** Running an evaluation set in CI is only possible
-# because `make retrieval-eval` makes no model calls: it is pure arithmetic over a
-# committed index, it takes seconds, and it is deterministic - two runs of the identical
-# configuration two days apart produced byte-identical numbers. So a drop of any size is a
-# regression and can fail a build.
+# **The unusual step is the third one.** Running an evaluation set in CI is possible
+# because this one needs no API key: the index is committed, and so are the eval
+# questions' embeddings (`eval/query_cache.json`). It is then pure arithmetic - seconds to
+# run, and deterministic: two runs of the identical configuration two days apart produced
+# byte-identical numbers. So a drop of any size is a regression and can fail a build.
+#
+# The first version of this file claimed the harness made no model calls at all. It does -
+# the questions have to be embedded - and it was only free on a laptop whose cache had
+# held them for weeks. This job is what found that out.
 #
 # The paid harnesses (`make eval`, `route-eval`, `followup-eval`) are NOT here, and the
 # README says so. They cost money per run and their numbers move about five points between

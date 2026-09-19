@@ -4,7 +4,7 @@ PYTHON ?= python3
 # `make` swallows anything starting with `--`, so flags have to arrive as a variable.
 ARGS ?=
 
-.PHONY: record-demo docker-build docker-build-amd64 docker-checks docker-run docker-run-readonly install dev test lint fmt ingest index check-eval eval retrieval-eval grade-eval route-eval followup-eval label-judge score-judge gold-audit gold-apply clean
+.PHONY: export-query-cache record-demo docker-build docker-build-amd64 docker-checks docker-run docker-run-readonly install dev test lint fmt ingest index check-eval eval retrieval-eval grade-eval route-eval followup-eval label-judge score-judge gold-audit gold-apply clean
 
 install:
 	@$(PYTHON) -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" \
@@ -91,6 +91,10 @@ docker-run-readonly:
 # The three failure modes, against the built image, on port 8100 so it does not collide
 # with a server you have running.
 # Re-record the landing page's answers from the real system. Costs about 1 cent.
+# Re-export the eval questions' embeddings after changing eval/questions.jsonl. Free.
+export-query-cache:
+	.venv/bin/python -m scripts.export_query_cache
+
 record-demo:
 	.venv/bin/python -m scripts.record_demo $(ARGS)
 
