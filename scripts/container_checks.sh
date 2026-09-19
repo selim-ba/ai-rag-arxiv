@@ -15,6 +15,14 @@ PORT="${PORT:-8100}"
 NAME="arxiv-rag-check"
 FAILED=0
 
+# Four of the five checks need no key at all - that is the point of them, and it is what
+# lets CI run them on every push. Only the budget check spends money, so it looks for a
+# key and skips itself rather than failing when there is none.
+KEY="${OPENAI_API_KEY:-}"
+if [ -z "$KEY" ] && [ -f .env ]; then
+  KEY=$(grep -E "^OPENAI_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d "\"'")
+fi
+
 cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
@@ -71,7 +79,8 @@ echo
 echo "1. no index in the image"
 echo "   a container that dies because a volume was not mounted tells you nothing;"
 echo "   one that starts and reports itself unready tells you exactly what is wrong."
-if start --env-file .env --mount type=tmpfs,destination=/app/data/index; then
+# No key needed: /ask refuses with 503 before anything reaches the provider.
+if start --mount type=tmpfs,destination=/app/data/index; then
   expect "/health answers" "$(status_of "http://localhost:$PORT/health")" "200"
   body_has "  and reports an empty index" '"chunks_indexed":0'
   expect "/ask refuses" "$(ask)" "503"
@@ -126,7 +135,9 @@ echo
 echo "5. the daily budget"
 echo "   COSTS ONE REAL REQUEST (about \$0.0005). Budget set below the price of a single"
 echo "   answer, so the second question is refused."
-if start --env-file .env -e PT_DAILY_BUDGET_USD=0.0002; then
+if [ -z "$KEY" ]; then
+  echo "  skipped: no OPENAI_API_KEY in the environment or .env"
+elif start -e OPENAI_API_KEY="$KEY" -e PT_DAILY_BUDGET_USD=0.0002; then
   expect "the first question is answered" "$(ask_status)" "200"
   expect "the second is refused" "$(ask_status)" "503"
   body_has "  as an exhausted budget" '"code":"budget_exhausted"'

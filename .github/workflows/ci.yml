@@ -1,0 +1,86 @@
+# lint -> tests -> the retrieval evaluation -> build -> the container's failure modes.
+#
+# **The unusual step is the third one.** Running an evaluation set in CI is only possible
+# because `make retrieval-eval` makes no model calls: it is pure arithmetic over a
+# committed index, it takes seconds, and it is deterministic - two runs of the identical
+# configuration two days apart produced byte-identical numbers. So a drop of any size is a
+# regression and can fail a build.
+#
+# The paid harnesses (`make eval`, `route-eval`, `followup-eval`) are NOT here, and the
+# README says so. They cost money per run and their numbers move about five points between
+# runs of the same code; a green badge that implied they were checked on every push would
+# be a claim this project has spent seven stages learning not to make.
+#
+# Nothing here needs a secret. Four of the five container checks run without an API key -
+# that is what they were designed to prove - and the fifth skips itself when there is none.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"        # the version the image runs, not the laptop's 3.14
+          cache: pip
+
+      - name: install
+        run: pip install -e ".[dev,ingest]"
+
+      - name: lint
+        run: |
+          ruff format --check src tests scripts
+          ruff check src tests scripts
+
+      - name: tests
+        run: pytest -q
+
+      - name: retrieval evaluation, against the committed floor
+        run: python -m scripts.retrieval_eval --check
+
+  image:
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runner is amd64, which is what the deployment target runs. Building here rather
+      # than on an arm64 laptop avoids emulation entirely.
+      - name: build
+        run: docker build -t "$IMAGE_NAME:${{ github.sha }}" .
+
+      - name: the container's failure modes
+        run: IMAGE="$IMAGE_NAME:${{ github.sha }}" ./scripts/container_checks.sh
+
+      - name: image size
+        run: docker images "$IMAGE_NAME:${{ github.sha }}" --format "{{.Size}}"
+
+      # Push only from main, and tag with the commit. `latest` alone cannot answer "which
+      # commit is serving traffic", which is the question you ask when something is wrong.
+      - name: log in to the registry
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: push
+        if: github.ref == 'refs/heads/main'
+        run: |
+          docker tag "$IMAGE_NAME:${{ github.sha }}" "$IMAGE_NAME:latest"
+          docker push "$IMAGE_NAME:${{ github.sha }}"
+          docker push "$IMAGE_NAME:latest"

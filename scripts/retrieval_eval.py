@@ -79,9 +79,59 @@ def score(name: str, retrieve, questions: list[dict], k: int) -> dict:
     }
 
 
+THRESHOLDS = ROOT / "eval" / "thresholds.json"
+
+
+def gate(results: list[dict], settings) -> int:
+    """Compare the shipped configuration against the committed floor. Returns an exit code.
+
+    **Why an exact comparison is allowed here.** Retrieval is deterministic - two runs of
+    the identical configuration two days apart produced byte-identical numbers - so a drop
+    of any size is a regression rather than noise. No answer-quality metric in this project
+    could gate anything: they move about five points between runs of the same code.
+
+    **Why the floor lives in the repository and not in the workflow.** A threshold in a
+    YAML comment is a number nobody reviews. In `eval/thresholds.json` it arrives in a
+    diff, and raising it after a real improvement is a deliberate commit.
+    """
+    floor = json.loads(THRESHOLDS.read_text())
+    wanted = f"hybrid d={settings.fusion_depth}*"
+    shipped = next((r for r in results if r["name"] == wanted), None)
+    if shipped is None:  # a renamed row must fail loudly rather than pass quietly
+        print(f"\n!! no shipped row to check (looked for {wanted!r})")
+        return 1
+
+    print(f"\nCHECK against {THRESHOLDS.relative_to(ROOT)}")
+    failed = False
+    for metric in ("hit@1", "hit@5", "recall@5"):
+        # Compared at the precision the floor is WRITTEN at, not at full float precision.
+        # hit@1 is 12/34 = 0.35294..., and a floor of 0.353 is that number rounded for a
+        # human to read in a diff. An exact comparison failed the first time it ran, by
+        # 0.00006, and reported it as "(-0.000)".
+        #
+        # Rounding cannot hide a real regression here: there are 34 questions, so the
+        # smallest change any of these metrics can make is 1/34 = 0.029 - a hundred times
+        # the rounding. Anything that moves at all moves the third decimal.
+        got, want = round(shipped[metric], 3), floor[metric]
+        ok = got >= want
+        failed |= not ok
+        delta = "" if got == want else f"  ({got - want:+.3f})"
+        print(f"  {'ok  ' if ok else 'FAIL'}  {metric:9} {got:.3f}  floor {want:.3f}{delta}")
+    if failed:
+        print("\n  retrieval regressed. Fix it, or raise the floor on purpose in a commit.")
+        return 1
+    print("\n  the shipped retriever is at or above the committed floor")
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ranks", action="store_true", help="per-question gold rank")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="fail if the shipped retriever drops below eval/thresholds.json (for CI)",
+    )
     parser.add_argument(
         "--paper-recall",
         action="store_true",
@@ -260,6 +310,9 @@ def main() -> None:
             f"{r['name']:<14} {r['hit@1']:>7.3f} {r['hit@5']:>7.3f} {r['recall@5']:>9.3f} "
             f"{r['mrr']:>7.3f} {r['p50']:>8.1f} {r['p95']:>8.1f}"
         )
+
+    if args.check:
+        raise SystemExit(gate(results, settings))
 
     if args.filter_ceiling:
         # The question the `filtered` route rests on: what could ANY filter buy?

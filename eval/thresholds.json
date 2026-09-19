@@ -1,0 +1,9 @@
+{
+  "_why": "The floor CI holds the shipped retriever to. Retrieval is deterministic - two runs two days apart produced byte-identical numbers - so these are exact values, not estimates, and any drop is a real regression rather than noise. Raise them deliberately when a change earns it; never lower them to make a build pass.",
+  "_configuration": "hybrid dense+BM25, fusion depth 20, rrf_k 5, weights [1.0, 0.3], k=5, 34 answerable questions",
+  "_precision": "Written to three decimals, and compared at three decimals. With 34 questions the smallest possible change in any of these is 1/34 = 0.029, so rounding cannot hide a regression.",
+  "_measured": "2026-09-19",
+  "hit@1": 0.353,
+  "hit@5": 0.676,
+  "recall@5": 0.578
+}
